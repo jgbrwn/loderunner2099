@@ -3,6 +3,8 @@ import { CONFIG, TileType } from '../config';
 import { TileMap } from '../level/TileMap';
 import { Player } from './Player';
 
+type SpriteOrRect = Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
+
 export enum EnemyState {
   IDLE,
   CHASING,
@@ -14,7 +16,7 @@ export enum EnemyState {
 }
 
 export class Enemy {
-  public sprite: Phaser.GameObjects.Rectangle;
+  public sprite: SpriteOrRect;
   public gridX: number;
   public gridY: number;
   public state: EnemyState = EnemyState.IDLE;
@@ -32,6 +34,8 @@ export class Enemy {
   private startY: number;
   private moveDelay: number = 0;
   private speedMultiplier: number = 1;
+  private animTimer: number = 0;
+  private animFrame: number = 0;
   
   constructor(
     scene: Phaser.Scene, 
@@ -53,13 +57,15 @@ export class Enemy {
     this.startY = gridY;
     this.speedMultiplier = speedMultiplier;
     
-    this.sprite = scene.add.rectangle(
-      gridX * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2,
-      gridY * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2,
-      CONFIG.TILE_SIZE - 4,
-      CONFIG.TILE_SIZE - 2,
-      color
-    );
+    const px = gridX * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+    const py = gridY * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+    
+    // Try to use texture, fall back to rectangle
+    if (scene.textures.exists('enemy')) {
+      this.sprite = scene.add.sprite(px, py, 'enemy');
+    } else {
+      this.sprite = scene.add.rectangle(px, py, CONFIG.TILE_SIZE - 4, CONFIG.TILE_SIZE - 2, color);
+    }
     this.sprite.setDepth(9);
   }
   
@@ -165,6 +171,7 @@ export class Enemy {
     this.checkPlayerCollision();
     
     this.updateSpritePosition();
+    this.updateAnimation(delta);
   }
   
   private shouldFall(): boolean {
@@ -359,7 +366,65 @@ export class Enemy {
   }
   
   setColor(color: number): void {
-    this.sprite.setFillStyle(color);
+    if (this.sprite instanceof Phaser.GameObjects.Rectangle) {
+      this.sprite.setFillStyle(color);
+    }
+  }
+  
+  recreateSprite(color: number): void {
+    const px = this.sprite.x;
+    const py = this.sprite.y;
+    const depth = this.sprite.depth;
+    const alpha = this.sprite.alpha;
+    this.sprite.destroy();
+    
+    // Create new sprite with updated textures
+    if (this.scene.textures.exists('enemy')) {
+      this.sprite = this.scene.add.sprite(px, py, 'enemy');
+    } else {
+      this.sprite = this.scene.add.rectangle(px, py, CONFIG.TILE_SIZE - 4, CONFIG.TILE_SIZE - 2, color);
+    }
+    this.sprite.setDepth(depth);
+    this.sprite.setAlpha(alpha);
+  }
+  
+  updateAnimation(delta: number): void {
+    if (!(this.sprite instanceof Phaser.GameObjects.Sprite)) return;
+    
+    this.animTimer += delta;
+    const animSpeed = 180; // ms per frame (slightly slower than player)
+    
+    if (this.animTimer >= animSpeed) {
+      this.animTimer = 0;
+      this.animFrame = (this.animFrame + 1) % 2;
+    }
+    
+    let frame = 'idle';
+    
+    switch (this.state) {
+      case EnemyState.CHASING:
+        frame = this.animFrame === 0 ? 'walk1' : 'walk2';
+        break;
+      case EnemyState.FALLING:
+        frame = this.animFrame === 0 ? 'walk1' : 'walk2';
+        break;
+      case EnemyState.TRAPPED:
+        frame = 'trapped';
+        break;
+      case EnemyState.CLIMBING_OUT:
+        frame = this.animFrame === 0 ? 'climb1' : 'climb2';
+        break;
+    }
+    
+    // Apply frame if texture exists
+    const textureKey = `enemy_${frame}`;
+    if (this.scene.textures.exists(textureKey)) {
+      (this.sprite as Phaser.GameObjects.Sprite).setTexture(textureKey);
+    }
+    
+    // Face toward player
+    const facingLeft = this.player.gridX < this.gridX;
+    this.sprite.setFlipX(facingLeft);
   }
   
   reset(): void {

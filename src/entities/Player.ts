@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { CONFIG, TileType } from '../config';
 import { TileMap } from '../level/TileMap';
 
+type SpriteOrRect = Phaser.GameObjects.Sprite | Phaser.GameObjects.Rectangle;
+
 export enum PlayerState {
   IDLE,
   WALKING,
@@ -13,7 +15,7 @@ export enum PlayerState {
 }
 
 export class Player {
-  public sprite: Phaser.GameObjects.Rectangle;
+  public sprite: SpriteOrRect;
   public gridX: number;
   public gridY: number;
   public state: PlayerState = PlayerState.IDLE;
@@ -27,6 +29,9 @@ export class Player {
   private digTimer: number = 0;
   private digX: number = 0;
   private digY: number = 0;
+  private currentFrame: string = 'idle';
+  private animTimer: number = 0;
+  private animFrame: number = 0;
   
   constructor(scene: Phaser.Scene, tileMap: TileMap, gridX: number, gridY: number, color: number) {
     this.scene = scene;
@@ -36,18 +41,19 @@ export class Player {
     this.targetX = gridX;
     this.targetY = gridY;
     
-    // Create player sprite (rectangle for now)
-    this.sprite = scene.add.rectangle(
-      gridX * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2,
-      gridY * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2,
-      CONFIG.TILE_SIZE - 4,
-      CONFIG.TILE_SIZE - 2,
-      color
-    );
+    const px = gridX * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+    const py = gridY * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+    
+    // Try to use texture, fall back to rectangle
+    if (scene.textures.exists('player')) {
+      this.sprite = scene.add.sprite(px, py, 'player');
+    } else {
+      this.sprite = scene.add.rectangle(px, py, CONFIG.TILE_SIZE - 4, CONFIG.TILE_SIZE - 2, color);
+    }
     this.sprite.setDepth(10);
   }
   
-  update(delta: number, cursors: Phaser.Types.Input.Keyboard.CursorKeys, digKeys: { left: Phaser.Input.Keyboard.Key, right: Phaser.Input.Keyboard.Key }, speedMultiplier: number): void {
+  update(delta: number, cursors: Phaser.Types.Input.Keyboard.CursorKeys, digKeys: { left: Phaser.Input.Keyboard.Key & { _justDown?: boolean }, right: Phaser.Input.Keyboard.Key & { _justDown?: boolean } }, speedMultiplier: number): void {
     if (this.state === PlayerState.DEAD) return;
     
     const moveSpeed = CONFIG.BASE_SPEED * speedMultiplier;
@@ -89,10 +95,13 @@ export class Player {
     
     // Handle movement input
     if (this.moveProgress === 0) {
-      // Check dig inputs first
-      if (Phaser.Input.Keyboard.JustDown(digKeys.left)) {
+      // Check dig inputs first - support both keyboard JustDown and touch _justDown
+      const digLeftPressed = digKeys.left._justDown || Phaser.Input.Keyboard.JustDown(digKeys.left);
+      const digRightPressed = digKeys.right._justDown || Phaser.Input.Keyboard.JustDown(digKeys.right);
+      
+      if (digLeftPressed) {
         this.tryDig(-1);
-      } else if (Phaser.Input.Keyboard.JustDown(digKeys.right)) {
+      } else if (digRightPressed) {
         this.tryDig(1);
       }
       // Movement
@@ -123,6 +132,7 @@ export class Player {
     }
     
     this.updateSpritePosition();
+    this.updateAnimation(delta);
   }
   
   private shouldFall(): boolean {
@@ -259,7 +269,65 @@ export class Player {
   }
   
   setColor(color: number): void {
-    this.sprite.setFillStyle(color);
+    if (this.sprite instanceof Phaser.GameObjects.Rectangle) {
+      this.sprite.setFillStyle(color);
+    }
+  }
+  
+  recreateSprite(color: number): void {
+    const px = this.sprite.x;
+    const py = this.sprite.y;
+    const depth = this.sprite.depth;
+    this.sprite.destroy();
+    
+    // Create new sprite with updated textures
+    if (this.scene.textures.exists('player')) {
+      this.sprite = this.scene.add.sprite(px, py, 'player');
+    } else {
+      this.sprite = this.scene.add.rectangle(px, py, CONFIG.TILE_SIZE - 4, CONFIG.TILE_SIZE - 2, color);
+    }
+    this.sprite.setDepth(depth);
+  }
+  
+  updateAnimation(delta: number): void {
+    if (!(this.sprite instanceof Phaser.GameObjects.Sprite)) return;
+    
+    this.animTimer += delta;
+    const animSpeed = 150; // ms per frame
+    
+    if (this.animTimer >= animSpeed) {
+      this.animTimer = 0;
+      this.animFrame = (this.animFrame + 1) % 2;
+    }
+    
+    let frame = 'idle';
+    
+    switch (this.state) {
+      case PlayerState.WALKING:
+        frame = this.animFrame === 0 ? 'walk1' : 'walk2';
+        break;
+      case PlayerState.CLIMBING:
+        frame = this.animFrame === 0 ? 'climb1' : 'climb2';
+        break;
+      case PlayerState.HANGING:
+        frame = 'hang';
+        break;
+      case PlayerState.FALLING:
+        frame = 'fall';
+        break;
+      case PlayerState.DIGGING:
+        frame = 'dig';
+        break;
+    }
+    
+    // Apply frame if texture exists
+    const textureKey = `player_${frame}`;
+    if (this.scene.textures.exists(textureKey)) {
+      (this.sprite as Phaser.GameObjects.Sprite).setTexture(textureKey);
+    }
+    
+    // Flip based on facing direction
+    this.sprite.setFlipX(this.facing === 'left');
   }
   
   reset(gridX: number, gridY: number): void {

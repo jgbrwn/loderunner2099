@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { CONFIG, THEMES, DIFFICULTIES } from '../config';
 import { generateSeedCode } from '../utils/SeededRandom';
+import { getSoundManager } from '../audio/SoundManager';
+import { getHighScores } from '../systems/HighScores';
 
 export class MenuScene extends Phaser.Scene {
   private selectedDifficulty: number = 1; // 0=easy, 1=normal, 2=hard, 3=ninja
@@ -10,6 +12,7 @@ export class MenuScene extends Phaser.Scene {
   private difficultyTexts: Phaser.GameObjects.Text[] = [];
   private seedInput: string = '';
   private seedText!: Phaser.GameObjects.Text;
+  private highScoreText!: Phaser.GameObjects.Text;
   
   constructor() {
     super({ key: 'MenuScene' });
@@ -19,18 +22,21 @@ export class MenuScene extends Phaser.Scene {
     const theme = THEMES.cyber;
     this.cameras.main.setBackgroundColor(theme.background);
     
+    // Initialize sound system on first interaction
+    this.input.once('pointerdown', () => getSoundManager().resume());
+    
     // Title
-    const title = this.add.text(CONFIG.GAME_WIDTH / 2, 60, 'LODE RUNNER', {
+    const title = this.add.text(CONFIG.GAME_WIDTH / 2, 50, 'LODE RUNNER', {
       fontFamily: 'monospace',
-      fontSize: '48px',
+      fontSize: '42px',
       color: '#00ffff',
       fontStyle: 'bold'
     });
     title.setOrigin(0.5);
     
-    const subtitle = this.add.text(CONFIG.GAME_WIDTH / 2, 110, '2 0 9 9', {
+    const subtitle = this.add.text(CONFIG.GAME_WIDTH / 2, 95, '2 0 9 9', {
       fontFamily: 'monospace',
-      fontSize: '36px',
+      fontSize: '32px',
       color: '#ff00ff',
       fontStyle: 'bold'
     });
@@ -45,10 +51,22 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1
     });
     
+    // High score display
+    const topScore = getHighScores().getTopScore();
+    if (topScore) {
+      this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 130, 
+        `HIGH SCORE: ${topScore.score} by ${topScore.name}`, {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffff00'
+      });
+      this.highScoreText.setOrigin(0.5);
+    }
+    
     // Difficulty selection
-    const diffLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 180, 'SELECT DIFFICULTY', {
+    const diffLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 160, 'SELECT DIFFICULTY', {
       fontFamily: 'monospace',
-      fontSize: '18px',
+      fontSize: '16px',
       color: '#ffffff'
     });
     diffLabel.setOrigin(0.5);
@@ -57,15 +75,18 @@ export class MenuScene extends Phaser.Scene {
     const colors = ['#00ff00', '#00ffff', '#ffaa00', '#ff0044'];
     
     difficulties.forEach((diff, i) => {
-      const y = 220 + i * 35;
+      const y = 195 + i * 32;
       const text = this.add.text(CONFIG.GAME_WIDTH / 2, y, diff, {
         fontFamily: 'monospace',
-        fontSize: '24px',
+        fontSize: '22px',
         color: colors[i]
       });
       text.setOrigin(0.5);
       text.setInteractive({ useHandCursor: true });
-      text.on('pointerdown', () => this.selectDifficulty(i));
+      text.on('pointerdown', () => {
+        this.selectDifficulty(i);
+        this.startGame();
+      });
       text.on('pointerover', () => {
         this.selectDifficulty(i);
       });
@@ -73,29 +94,27 @@ export class MenuScene extends Phaser.Scene {
     });
     
     // Seed input
-    const seedLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 380, 'SEED (optional):', {
+    const seedLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 335, 'SEED (optional):', {
       fontFamily: 'monospace',
-      fontSize: '14px',
+      fontSize: '12px',
       color: '#888888'
     });
     seedLabel.setOrigin(0.5);
     
-    this.seedText = this.add.text(CONFIG.GAME_WIDTH / 2, 405, '[ RANDOM ]', {
+    this.seedText = this.add.text(CONFIG.GAME_WIDTH / 2, 355, '[ RANDOM ]', {
       fontFamily: 'monospace',
-      fontSize: '18px',
+      fontSize: '16px',
       color: '#ffff00'
     });
     this.seedText.setOrigin(0.5);
     
     // Instructions
-    const instructions = this.add.text(CONFIG.GAME_WIDTH / 2, 470, 
-      'CONTROLS:\n' +
-      'Arrow Keys - Move\n' +
-      'Z - Dig Left  |  X - Dig Right\n' +
-      '+/- Speed  |  P - Pause  |  T - Theme\n\n' +
-      'Press ENTER or SPACE to start', {
+    const instructions = this.add.text(CONFIG.GAME_WIDTH / 2, 410, 
+      'CONTROLS: Arrow Keys - Move | Z/X - Dig\n' +
+      '+/- Speed | P Pause | T Theme | C CRT | M Mute\n\n' +
+      'Press ENTER or tap to start', {
       fontFamily: 'monospace',
-      fontSize: '12px',
+      fontSize: '11px',
       color: '#666688',
       align: 'center'
     });
@@ -137,6 +156,9 @@ export class MenuScene extends Phaser.Scene {
   }
   
   private selectDifficulty(index: number): void {
+    if (index !== this.selectedDifficulty) {
+      getSoundManager().playMenuSelect();
+    }
     this.selectedDifficulty = index;
     this.updateDifficultyDisplay();
   }
@@ -144,10 +166,10 @@ export class MenuScene extends Phaser.Scene {
   private updateDifficultyDisplay(): void {
     this.difficultyTexts.forEach((text, i) => {
       if (i === this.selectedDifficulty) {
-        text.setStyle({ fontSize: '28px' });
+        text.setStyle({ fontSize: '26px' });
         text.setText('> ' + ['EASY', 'NORMAL', 'HARD', 'NINJA'][i] + ' <');
       } else {
-        text.setStyle({ fontSize: '24px' });
+        text.setStyle({ fontSize: '22px' });
         text.setText(['EASY', 'NORMAL', 'HARD', 'NINJA'][i]);
       }
     });
@@ -162,6 +184,7 @@ export class MenuScene extends Phaser.Scene {
   }
   
   private startGame(): void {
+    getSoundManager().playMenuConfirm();
     const seed = this.seedInput.length > 0 ? this.seedInput : generateSeedCode();
     this.scene.start('GameScene', {
       difficulty: this.difficultyKeys[this.selectedDifficulty],
