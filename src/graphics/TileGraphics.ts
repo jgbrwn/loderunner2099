@@ -19,7 +19,7 @@ export class TileGraphics {
   generateTextures(theme: Theme, prefix: string = ''): void {
     this.generateBrickTexture(prefix + 'brick', theme.brick);
     this.generateBrickTexture(prefix + 'brick_hard', theme.brickHard, true);
-    this.generateBrickTexture(prefix + 'brick_trap', theme.brick); // Same as normal
+    this.generateTrapBrickTexture(prefix + 'brick_trap', theme.brick);
     this.generateLadderTexture(prefix + 'ladder', theme.ladder);
     this.generateLadderTexture(prefix + 'ladder_exit', theme.ladder, true);
     this.generatePoleTexture(prefix + 'pole', theme.pole);
@@ -88,6 +88,59 @@ export class TileGraphics {
     // Border
     ctx.strokeStyle = this.colorToHex(borderColor);
     ctx.lineWidth = 1;
+    ctx.strokeRect(0, 0, size, size);
+    
+    this.addTexture(key, canvas);
+  }
+  
+  private generateTrapBrickTexture(key: string, color: number): void {
+    const size = CONFIG.TILE_SIZE;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    
+    // Fill background - same as normal bricks
+    ctx.fillStyle = this.colorToHex(color);
+    ctx.fillRect(0, 0, size, size);
+    
+    const borderColor = this.darken(color, 0.4);
+    const shadowColor = this.darken(color, 0.3);
+    const crackColor = this.darken(color, 0.6);
+    
+    // Brick pattern like normal
+    const brickHeight = size / 2;
+    ctx.fillStyle = this.colorToHex(shadowColor);
+    ctx.fillRect(0, brickHeight - 1, size, 2);
+    ctx.fillRect(size / 2 - 1, 0, 2, brickHeight);
+    ctx.fillRect(0, brickHeight, 2, brickHeight);
+    ctx.fillRect(size - 2, brickHeight, 2, brickHeight);
+    
+    // Add visible cracks to indicate it's a trap brick
+    ctx.strokeStyle = this.colorToHex(crackColor);
+    ctx.lineWidth = 1;
+    
+    // Main diagonal crack
+    ctx.beginPath();
+    ctx.moveTo(4, size - 4);
+    ctx.lineTo(size / 2 - 2, size / 2 + 2);
+    ctx.lineTo(size / 2 + 3, size / 2 - 1);
+    ctx.stroke();
+    
+    // Secondary crack
+    ctx.beginPath();
+    ctx.moveTo(size - 6, 4);
+    ctx.lineTo(size - 10, 8);
+    ctx.lineTo(size - 8, 12);
+    ctx.stroke();
+    
+    // Small dots to show crumbling
+    ctx.fillStyle = this.colorToHex(crackColor);
+    ctx.fillRect(6, size / 2 + 4, 2, 2);
+    ctx.fillRect(size - 8, size / 2 - 4, 2, 2);
+    
+    // Border
+    ctx.strokeStyle = this.colorToHex(borderColor);
     ctx.strokeRect(0, 0, size, size);
     
     this.addTexture(key, canvas);
