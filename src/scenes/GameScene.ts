@@ -736,6 +736,9 @@ export class GameScene extends Phaser.Scene {
       this.goldSprites.delete(goldKey);
     }
     
+    // Check for floating gold above and make it fall
+    this.checkFloatingGold(data.x, data.y - 1);
+    
     // Show exit ladders when all gold collected
     if (this.tileMap.goldPositions.length === 0) {
       getSoundManager().playExitAppear();
@@ -744,6 +747,67 @@ export class GameScene extends Phaser.Scene {
         this.updateTileSprite(exit.x, exit.y);
       }
       this.showMessage('EXIT AT TOP!', 2000);
+    }
+  }
+  
+  /**
+   * Check if there's floating gold at a position and make it fall
+   */
+  private checkFloatingGold(x: number, y: number): void {
+    if (y < 0 || y >= this.tileMap.height) return;
+    
+    const tile = this.tileMap.getTile(x, y);
+    if (tile !== TileType.GOLD) return;
+    
+    // Gold found - check if it's floating (no support below)
+    const goldIdx = this.tileMap.goldPositions.findIndex(g => g.x === x && g.y === y);
+    if (goldIdx === -1) return;
+    
+    // Find where the gold should fall to
+    let newY = y;
+    for (let checkY = y + 1; checkY < this.tileMap.height; checkY++) {
+      const belowTile = this.tileMap.getTile(x, checkY);
+      
+      // Stop at solid ground, ladder, or another gold
+      if (belowTile === TileType.BRICK || 
+          belowTile === TileType.BRICK_HARD ||
+          belowTile === TileType.BRICK_TRAP ||
+          belowTile === TileType.LADDER ||
+          belowTile === TileType.LADDER_EXIT ||
+          belowTile === TileType.GOLD) {
+        newY = checkY - 1;
+        break;
+      }
+      
+      // At bottom of map
+      if (checkY === this.tileMap.height - 1) {
+        newY = checkY;
+        break;
+      }
+    }
+    
+    // If gold needs to fall
+    if (newY !== y) {
+      // Remove old gold
+      this.tileMap.setTile(x, y, TileType.EMPTY);
+      this.updateTileSprite(x, y);
+      
+      const oldKey = `${x},${y}`;
+      const oldSprite = this.goldSprites.get(oldKey);
+      if (oldSprite) {
+        oldSprite.destroy();
+        this.goldSprites.delete(oldKey);
+      }
+      
+      // Update position in goldPositions
+      this.tileMap.goldPositions[goldIdx] = { x, y: newY };
+      
+      // Add gold at new position
+      this.tileMap.setTile(x, newY, TileType.GOLD);
+      this.createGoldSprite(x, newY);
+      
+      // Recursively check above the old position
+      this.checkFloatingGold(x, y - 1);
     }
   }
   
@@ -904,11 +968,12 @@ export class GameScene extends Phaser.Scene {
       this.escKeyHandler = null;
     }
     
-    // Signal MenuScene to reset seed
-    (window as any).__RESET_SEED_ON_MENU__ = true;
+    // Show returning message
+    this.showMessage('Returning to menu...');
     
-    // Just reload the page - most reliable way to get back to menu
-    window.location.href = window.location.pathname;
+    // Page reload is the only reliable way to return to menu
+    // Use replace to not add to browser history
+    window.location.replace(window.location.pathname);
   }
   
   private updateHUD(): void {

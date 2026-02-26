@@ -314,89 +314,110 @@ export class Enemy {
     
     this.hasGold = false;
     
-    // Find a safe position to drop gold
-    // Safe = empty, pole, or ladder (not solid, not a hole)
+    // Find a valid position to drop gold
+    // Valid = empty/pole/ladder, has support below (floor or ladder), no existing gold
     let dropX = this.gridX;
     let dropY = this.gridY;
     
-    const currentTile = this.tileMap.getTile(dropX, dropY);
-    const isSafeForGold = (tile: TileType) => 
-      tile === TileType.EMPTY || 
-      tile === TileType.POLE || 
-      tile === TileType.LADDER || 
-      tile === TileType.LADDER_EXIT;
+    const isValidForGold = (x: number, y: number): boolean => {
+      if (x < 0 || x >= this.tileMap.width || y < 0 || y >= this.tileMap.height) {
+        return false;
+      }
+      
+      const tile = this.tileMap.getTile(x, y);
+      
+      // Must be empty, pole, or ladder
+      const isSafeTile = tile === TileType.EMPTY || 
+                         tile === TileType.POLE || 
+                         tile === TileType.LADDER || 
+                         tile === TileType.LADDER_EXIT;
+      if (!isSafeTile) return false;
+      
+      // Check no existing gold at this position
+      const hasGold = this.tileMap.goldPositions.some(g => g.x === x && g.y === y);
+      if (hasGold) return false;
+      
+      // Must have support below (unless on ladder or at bottom)
+      if (y >= this.tileMap.height - 1) return true; // Bottom row
+      if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT) return true;
+      
+      const below = this.tileMap.getTile(x, y + 1);
+      const hasSupport = below === TileType.BRICK || 
+                         below === TileType.BRICK_HARD || 
+                         below === TileType.LADDER || 
+                         below === TileType.LADDER_EXIT ||
+                         below === TileType.BRICK_TRAP;
+      return hasSupport;
+    };
     
-    // If current position is NOT safe (hole, solid brick, etc), find safe spot
-    if (!isSafeForGold(currentTile)) {
-      // Try positions: above, left, right, diagonals, then search whole map
+    // First, try to find a valid position by falling down from current position
+    let foundValid = false;
+    
+    // Start from current position and fall until we hit support
+    let fallX = this.gridX;
+    let fallY = this.gridY;
+    while (fallY < this.tileMap.height) {
+      if (isValidForGold(fallX, fallY)) {
+        dropX = fallX;
+        dropY = fallY;
+        foundValid = true;
+        break;
+      }
+      fallY++;
+    }
+    
+    // If falling didn't work, search nearby valid positions
+    if (!foundValid) {
       const candidates = [
-        { x: dropX, y: dropY - 1 },      // Above
-        { x: dropX - 1, y: dropY },      // Left
-        { x: dropX + 1, y: dropY },      // Right
-        { x: dropX, y: dropY - 2 },      // Two above
-        { x: dropX - 1, y: dropY - 1 },  // Upper-left
-        { x: dropX + 1, y: dropY - 1 },  // Upper-right
-        { x: dropX - 2, y: dropY },      // Two left
-        { x: dropX + 2, y: dropY },      // Two right
+        { x: this.gridX - 1, y: this.gridY },
+        { x: this.gridX + 1, y: this.gridY },
+        { x: this.gridX, y: this.gridY - 1 },
+        { x: this.gridX - 1, y: this.gridY - 1 },
+        { x: this.gridX + 1, y: this.gridY - 1 },
       ];
       
-      let foundSafe = false;
       for (const pos of candidates) {
-        if (pos.x >= 0 && pos.x < this.tileMap.width && 
-            pos.y >= 0 && pos.y < this.tileMap.height) {
-          const tile = this.tileMap.getTile(pos.x, pos.y);
-          if (isSafeForGold(tile)) {
+        // For each candidate, also try falling from there
+        let testY = pos.y;
+        while (testY < this.tileMap.height) {
+          if (isValidForGold(pos.x, testY)) {
             dropX = pos.x;
-            dropY = pos.y;
-            foundSafe = true;
+            dropY = testY;
+            foundValid = true;
             break;
           }
+          testY++;
         }
+        if (foundValid) break;
       }
-      
-      // If no adjacent safe spot, search the entire map
-      if (!foundSafe) {
-        console.warn('Gold dropped in unsafe position, searching for safe spot...');
-        // Search from top to bottom, prefer positions near original
-        for (let radius = 1; radius < Math.max(this.tileMap.width, this.tileMap.height) && !foundSafe; radius++) {
-          for (let dy = -radius; dy <= radius && !foundSafe; dy++) {
-            for (let dx = -radius; dx <= radius; dx++) {
-              const nx = this.gridX + dx;
-              const ny = this.gridY + dy;
-              if (nx >= 0 && nx < this.tileMap.width && 
-                  ny >= 0 && ny < this.tileMap.height) {
-                const tile = this.tileMap.getTile(nx, ny);
-                if (isSafeForGold(tile)) {
-                  dropX = nx;
-                  dropY = ny;
-                  foundSafe = true;
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      if (!foundSafe) {
-        console.error('CRITICAL: Could not find ANY safe spot for gold!');
-        // Last resort: drop at top-left corner area
-        for (let y = 0; y < this.tileMap.height; y++) {
-          for (let x = 0; x < this.tileMap.width; x++) {
-            const tile = this.tileMap.getTile(x, y);
-            if (isSafeForGold(tile)) {
-              dropX = x;
-              dropY = y;
-              foundSafe = true;
+    }
+    
+    // If still not found, do an expanding radius search
+    if (!foundValid) {
+      for (let radius = 1; radius < Math.max(this.tileMap.width, this.tileMap.height) && !foundValid; radius++) {
+        for (let dy = -radius; dy <= radius && !foundValid; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const nx = this.gridX + dx;
+            const ny = this.gridY + dy;
+            if (isValidForGold(nx, ny)) {
+              dropX = nx;
+              dropY = ny;
+              foundValid = true;
               break;
             }
           }
-          if (foundSafe) break;
         }
       }
     }
     
-    // Drop gold at the safe position
+    if (!foundValid) {
+      console.error('CRITICAL: Could not find ANY valid spot for gold!');
+      // Last resort: just place it at original position
+      dropX = this.gridX;
+      dropY = this.gridY;
+    }
+    
+    // Drop gold at the valid position
     this.tileMap.setTile(dropX, dropY, TileType.GOLD);
     this.tileMap.goldPositions.push({ x: dropX, y: dropY });
     // Emit event to create gold sprite
