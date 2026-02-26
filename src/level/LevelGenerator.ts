@@ -95,12 +95,34 @@ export class LevelGenerator {
   }
   
   private createMainSpine(map: TileMap): void {
-    // Create a main ladder that goes from bottom to top
-    // This guarantees vertical connectivity
-    const spineX = this.rng.range(Math.floor(map.width * 0.3), Math.floor(map.width * 0.7));
+    // Create a main ladder that goes from bottom to near-top
+    // This guarantees basic vertical connectivity
+    // For harder difficulties, make the spine less direct (zigzag)
+    const complexity = this.difficulty.complexity ?? 0.6;
+    let spineX = this.rng.range(Math.floor(map.width * 0.25), Math.floor(map.width * 0.75));
+    
+    // Decide if spine should zigzag (more likely at high complexity)
+    const zigzag = complexity > 0.5 && this.rng.next() < complexity;
+    const zigzagInterval = zigzag ? this.rng.range(3, 5) : 999;
     
     for (let y = 0; y < map.height - 1; y++) {
       map.setTile(spineX, y, TileType.LADDER);
+      
+      // Zigzag: shift spine left or right periodically
+      if (zigzag && y > 0 && y % zigzagInterval === 0 && y < map.height - 3) {
+        const shift = this.rng.range(2, 5) * (this.rng.next() < 0.5 ? -1 : 1);
+        const newX = Math.max(2, Math.min(map.width - 3, spineX + shift));
+        
+        // Create horizontal connection
+        const startX = Math.min(spineX, newX);
+        const endX = Math.max(spineX, newX);
+        for (let x = startX; x <= endX; x++) {
+          if (map.getTile(x, y) === TileType.EMPTY) {
+            map.setTile(x, y, TileType.LADDER);
+          }
+        }
+        spineX = newX;
+      }
     }
   }
   
@@ -114,11 +136,14 @@ export class LevelGenerator {
   
   private createConnectedPlatforms(map: TileMap): void {
     // Create platform rows with ladders connecting them
-    const platformRows = [map.height - 4, map.height - 7, map.height - 10, 3];
+    // More complex levels have more platform rows to navigate
+    const platformRows = [map.height - 4, map.height - 7, map.height - 10, 3, map.height - 13];
     
-    // Filter based on difficulty (fewer platforms = harder)
-    const numPlatforms = Math.floor(2 + this.difficulty.ladderDensity * 3);
-    const activePlatforms = platformRows.slice(0, numPlatforms);
+    // Complexity controls how many platform layers we have
+    // complexity 0.4 = 2 platforms, 0.6 = 3, 0.8 = 4, 1.0 = 5
+    const complexity = this.difficulty.complexity ?? 0.6;
+    const numPlatforms = Math.floor(1 + complexity * 4);
+    const activePlatforms = platformRows.slice(0, Math.min(numPlatforms, platformRows.length));
     
     let previousLadderPositions: number[] = [];
     
@@ -132,8 +157,11 @@ export class LevelGenerator {
   private createPlatformWithLadders(map: TileMap, row: number, connectFrom: number[]): number[] {
     const ladderPositions: number[] = [];
     
-    // Create 2-4 platform segments
-    const numSegments = this.rng.range(2, 5);
+    // Create platform segments - more complex levels have more segments
+    const complexity = this.difficulty.complexity ?? 0.6;
+    const minSegments = Math.floor(2 + complexity);
+    const maxSegments = Math.floor(3 + complexity * 3);
+    const numSegments = this.rng.range(minSegments, maxSegments + 1);
     const segmentWidth = Math.floor(map.width / numSegments);
     
     for (let seg = 0; seg < numSegments; seg++) {
@@ -148,16 +176,18 @@ export class LevelGenerator {
         map.setTile(x, row, TileType.BRICK);
       }
       
-      // Add ladder somewhere in this segment
-      const ladderX = startX + this.rng.range(1, Math.max(2, endX - startX - 1));
-      if (ladderX >= startX && ladderX <= endX) {
-        this.extendLadderDown(map, ladderX, row);
-        ladderPositions.push(ladderX);
+      // Add ladder somewhere in this segment - probability based on ladder density
+      if (this.rng.next() < this.difficulty.ladderDensity) {
+        const ladderX = startX + this.rng.range(1, Math.max(2, endX - startX - 1));
+        if (ladderX >= startX && ladderX <= endX) {
+          this.extendLadderDown(map, ladderX, row);
+          ladderPositions.push(ladderX);
+        }
       }
     }
     
-    // Ensure at least one ladder connects to a previous ladder position
-    if (connectFrom.length > 0 && ladderPositions.length > 0) {
+    // Ensure at least one ladder connects to a previous ladder position (for solvability)
+    if (connectFrom.length > 0) {
       const targetX = this.rng.pick(connectFrom);
       // Find nearest platform position
       for (let dx = 0; dx < 5; dx++) {
@@ -201,7 +231,8 @@ export class LevelGenerator {
   
   private addExtraLadders(map: TileMap): void {
     // Add some random ladders for more paths
-    const extraLadders = Math.floor(this.difficulty.ladderDensity * 8);
+    // Ladder density controls how many extra easy routes exist
+    const extraLadders = Math.floor(this.difficulty.ladderDensity * 10);
     
     for (let i = 0; i < extraLadders; i++) {
       const x = this.rng.range(2, map.width - 2);

@@ -67,7 +67,8 @@ export interface DifficultySettings {
   lives: number;              // starting lives
   enemies: [number, number];  // min, max
   gold: [number, number];
-  ladderDensity: number;      // 0-1
+  complexity: number;         // 0-1, structural complexity (platforms, segments)
+  ladderDensity: number;      // 0-1, how many easy ladders/connections
   trapBrickChance: number;    // 0-1
   enemySpeed: number;         // multiplier
   holeTime: number;           // multiplier for hole duration
@@ -79,7 +80,8 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     lives: 5,
     enemies: [1, 2],
     gold: [5, 8],
-    ladderDensity: 0.7,
+    complexity: 0.4,          // simpler levels
+    ladderDensity: 0.8,       // lots of easy ladders
     trapBrickChance: 0.05,
     enemySpeed: 0.7,
     holeTime: 1.3,
@@ -89,7 +91,8 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     lives: 7,
     enemies: [2, 3],
     gold: [8, 12],
-    ladderDensity: 0.5,
+    complexity: 0.6,          // moderate complexity
+    ladderDensity: 0.5,       // moderate ladders
     trapBrickChance: 0.1,
     enemySpeed: 1.0,
     holeTime: 1.0,
@@ -99,7 +102,8 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     lives: 9,
     enemies: [3, 4],
     gold: [12, 16],
-    ladderDensity: 0.35,
+    complexity: 0.8,          // more complex layouts
+    ladderDensity: 0.35,      // fewer easy routes
     trapBrickChance: 0.15,
     enemySpeed: 1.2,
     holeTime: 0.8,
@@ -109,7 +113,8 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     lives: 11,
     enemies: [4, 5],
     gold: [16, 20],
-    ladderDensity: 0.25,
+    complexity: 1.0,          // maximum complexity
+    ladderDensity: 0.25,      // very sparse ladders - must dig!
     trapBrickChance: 0.2,
     enemySpeed: 1.4,
     holeTime: 0.6,
