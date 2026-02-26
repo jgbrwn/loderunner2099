@@ -27,8 +27,11 @@ export class Enemy {
     return this.state === EnemyState.TRAPPED;
   }
   
-  // Callback to check if there's another trapped enemy at a position
+  // Callback to check if there's another trapped enemy at a position (for walking over)
   public isTrappedEnemyAt: (x: number, y: number, excludeSelf: Enemy) => boolean = () => false;
+  
+  // Callback to check if there's ANY enemy at a position (for preventing multiple enemies in same hole)
+  public isEnemyAt: (x: number, y: number, excludeSelf: Enemy) => boolean = () => false;
   
   private scene: Phaser.Scene;
   private tileMap: TileMap;
@@ -189,8 +192,12 @@ export class Enemy {
     if (this.tileMap.isSupport(this.gridX, this.gridY + 1)) return false;
     // Don't fall if there's another trapped enemy below (can walk over them)
     if (this.isTrappedEnemyAt(this.gridX, this.gridY + 1, this)) return false;
-    // Can fall through holes
-    if (this.tileMap.getTile(this.gridX, this.gridY + 1) === TileType.HOLE) return true;
+    // Can fall through holes, but not if another enemy is already there
+    if (this.tileMap.getTile(this.gridX, this.gridY + 1) === TileType.HOLE) {
+      // Don't fall into hole if another enemy is already in it
+      if (this.isEnemyAt(this.gridX, this.gridY + 1, this)) return false;
+      return true;
+    }
     return true;
   }
   
@@ -275,7 +282,8 @@ export class Enemy {
     if (dx !== 0) {
       const onLadder = this.tileMap.isClimbable(this.gridX, this.gridY);
       const onBar = this.tileMap.isBar(this.gridX, this.gridY);
-      const hasSupport = this.tileMap.isSupport(this.gridX, this.gridY + 1);
+      const hasSupport = this.tileMap.isSupport(this.gridX, this.gridY + 1) ||
+                         this.isTrappedEnemyAt(this.gridX, this.gridY + 1, this);
       if (!onLadder && !onBar && !hasSupport) return false;
     }
     

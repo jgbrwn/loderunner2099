@@ -202,11 +202,18 @@ export class GameScene extends Phaser.Scene {
       this.enemies.push(enemy);
     }
     
-    // Set up trapped enemy checker for all enemies - they can walk over each other when trapped
+    // Set up enemy checker callbacks for all enemies
     for (const enemy of this.enemies) {
+      // Check for trapped enemies (for walking over)
       enemy.isTrappedEnemyAt = (x: number, y: number, excludeSelf: Enemy) => {
         return this.enemies.some(e => 
           e !== excludeSelf && e.gridX === x && e.gridY === y && e.isTrapped()
+        );
+      };
+      // Check for ANY enemy at position (for preventing multiple enemies in same hole)
+      enemy.isEnemyAt = (x: number, y: number, excludeSelf: Enemy) => {
+        return this.enemies.some(e => 
+          e !== excludeSelf && e.gridX === x && e.gridY === y
         );
       };
     }

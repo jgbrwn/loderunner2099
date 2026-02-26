@@ -202,7 +202,8 @@ export class Player {
       // Need support to walk, unless on ladder or bar
       const onLadder = this.tileMap.isClimbable(this.gridX, this.gridY);
       const onBar = this.tileMap.isBar(this.gridX, this.gridY);
-      const hasSupport = this.tileMap.isSupport(this.gridX, this.gridY + 1);
+      const hasSupport = this.tileMap.isSupport(this.gridX, this.gridY + 1) || 
+                         this.isTrappedEnemyAt(this.gridX, this.gridY + 1);
       
       if (!onLadder && !onBar && !hasSupport) return false;
       
