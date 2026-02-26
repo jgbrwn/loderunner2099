@@ -14,13 +14,35 @@ export class LevelGenerator {
     this.checker = new SolvabilityChecker();
   }
   
-  generate(maxAttempts = 50): TileMap {
+  generate(maxAttempts = 100): TileMap {
+    let bestMap: TileMap | null = null;
+    let bestScore = -1;
+    
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const map = this.generateCandidate();
-      if (this.checker.isSolvable(map)) {
+      const { solvable, score, debug } = this.checker.checkSolvability(map);
+      
+      if (solvable) {
+        console.log(`Generated solvable level on attempt ${attempt + 1}`);
         return map;
       }
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMap = map;
+      }
+      
+      if (attempt < 5) {
+        console.log(`Attempt ${attempt + 1}: score=${score}, ${debug}`);
+      }
     }
+    
+    // Use best candidate if it's reasonably good
+    if (bestMap && bestScore >= 0.5) {
+      console.log(`Using best candidate with score ${bestScore}`);
+      return bestMap;
+    }
+    
     // Fallback: generate a simple guaranteed-solvable level
     console.warn('Failed to generate solvable level, using fallback');
     return this.generateFallback();
@@ -32,220 +54,183 @@ export class LevelGenerator {
     // Step 1: Create ground floor
     this.createGround(map);
     
-    // Step 2: Create platforms
-    this.createPlatforms(map);
+    // Step 2: Create a main vertical "spine" ladder first
+    this.createMainSpine(map);
     
-    // Step 3: Add ladders to connect platforms
-    this.createLadders(map);
+    // Step 3: Create platforms with guaranteed connectivity
+    this.createConnectedPlatforms(map);
     
-    // Step 4: Add poles/bars
+    // Step 4: Add additional ladders
+    this.addExtraLadders(map);
+    
+    // Step 5: Add poles/bars
     this.createPoles(map);
     
-    // Step 5: Add hard bricks (obstacles)
+    // Step 6: Add some hard bricks
     this.addHardBricks(map);
     
-    // Step 6: Convert some bricks to trap bricks
+    // Step 7: Convert some bricks to trap bricks
     this.addTrapBricks(map);
     
-    // Step 7: Place player start
+    // Step 8: Place player start (bottom area)
     this.placePlayer(map);
     
-    // Step 8: Place gold
+    // Step 9: Place gold (after player so we know start position)
     this.placeGold(map);
     
-    // Step 9: Place enemies
+    // Step 10: Place enemies
     this.placeEnemies(map);
     
-    // Step 10: Add exit ladders at top
+    // Step 11: Add exit ladders at top (using existing ladders)
     this.addExitLadders(map);
     
     return map;
   }
   
+  private createMainSpine(map: TileMap): void {
+    // Create a main ladder that goes from bottom to top
+    // This guarantees vertical connectivity
+    const spineX = this.rng.range(Math.floor(map.width * 0.3), Math.floor(map.width * 0.7));
+    
+    for (let y = 0; y < map.height - 1; y++) {
+      map.setTile(spineX, y, TileType.LADDER);
+    }
+  }
+  
   private createGround(map: TileMap): void {
-    // Bottom row is solid (with some gaps for interest)
+    // Bottom row is mostly solid
     const y = map.height - 1;
     for (let x = 0; x < map.width; x++) {
-      // Leave occasional gaps (but not at edges)
-      if (x > 2 && x < map.width - 3 && this.rng.chance(0.1)) {
-        // Gap - skip
-      } else {
-        map.setTile(x, y, TileType.BRICK);
-      }
+      map.setTile(x, y, TileType.BRICK);
     }
   }
   
-  private createPlatforms(map: TileMap): void {
-    // Create 4-7 platform rows at varying heights
-    const numPlatforms = this.rng.range(4, 8);
-    const usedRows = new Set<number>();
-    usedRows.add(map.height - 1); // Ground
-    usedRows.add(0); // Top row reserved
+  private createConnectedPlatforms(map: TileMap): void {
+    // Create platform rows with ladders connecting them
+    const platformRows = [map.height - 4, map.height - 7, map.height - 10, 3];
     
-    for (let i = 0; i < numPlatforms; i++) {
-      // Pick a row not too close to others
-      let row: number;
-      let attempts = 0;
-      do {
-        row = this.rng.range(2, map.height - 2);
-        attempts++;
-      } while (this.isTooCloseToUsedRow(row, usedRows) && attempts < 20);
-      
-      if (attempts >= 20) continue;
-      usedRows.add(row);
-      
-      // Create platform segments
-      this.createPlatformRow(map, row);
+    // Filter based on difficulty (fewer platforms = harder)
+    const numPlatforms = Math.floor(2 + this.difficulty.ladderDensity * 3);
+    const activePlatforms = platformRows.slice(0, numPlatforms);
+    
+    let previousLadderPositions: number[] = [];
+    
+    for (let i = 0; i < activePlatforms.length; i++) {
+      const row = activePlatforms[i];
+      const ladderPositions = this.createPlatformWithLadders(map, row, previousLadderPositions);
+      previousLadderPositions = ladderPositions;
     }
   }
   
-  private isTooCloseToUsedRow(row: number, usedRows: Set<number>): boolean {
-    for (const used of usedRows) {
-      if (Math.abs(row - used) < 2) return true;
-    }
-    return false;
-  }
-  
-  private createPlatformRow(map: TileMap, row: number): void {
-    // Create several platform segments
+  private createPlatformWithLadders(map: TileMap, row: number, connectFrom: number[]): number[] {
+    const ladderPositions: number[] = [];
+    
+    // Create 2-4 platform segments
     const numSegments = this.rng.range(2, 5);
-    let x = this.rng.range(0, 5);
+    const segmentWidth = Math.floor(map.width / numSegments);
     
-    for (let seg = 0; seg < numSegments && x < map.width - 3; seg++) {
-      const length = this.rng.range(4, 12);
-      const endX = Math.min(x + length, map.width);
+    for (let seg = 0; seg < numSegments; seg++) {
+      const startX = seg * segmentWidth + this.rng.range(0, 3);
+      const endX = Math.min(startX + this.rng.range(4, segmentWidth), map.width - 1);
       
-      for (let px = x; px < endX; px++) {
-        map.setTile(px, row, TileType.BRICK);
+      // Leave gap between segments
+      if (seg > 0 && startX < seg * segmentWidth + 2) continue;
+      
+      // Create platform
+      for (let x = startX; x <= endX; x++) {
+        map.setTile(x, row, TileType.BRICK);
       }
       
-      // Gap before next segment
-      x = endX + this.rng.range(2, 6);
-    }
-  }
-  
-  private createLadders(map: TileMap): void {
-    // Find platform edges and middle areas, add ladders
-    const ladderDensity = this.difficulty.ladderDensity;
-    
-    for (let x = 1; x < map.width - 1; x++) {
-      for (let y = 1; y < map.height - 1; y++) {
-        // Skip if not a good ladder spot
-        if (!this.isGoodLadderSpot(map, x, y)) continue;
-        
-        // Random chance based on difficulty
-        if (!this.rng.chance(ladderDensity * 0.3)) continue;
-        
-        // Extend ladder up/down to connect platforms
-        this.extendLadder(map, x, y);
+      // Add ladder somewhere in this segment
+      const ladderX = startX + this.rng.range(1, Math.max(2, endX - startX - 1));
+      if (ladderX >= startX && ladderX <= endX) {
+        this.extendLadderDown(map, ladderX, row);
+        ladderPositions.push(ladderX);
       }
     }
     
-    // Ensure at least some ladders exist
-    this.ensureMinimumLadders(map);
-  }
-  
-  private isGoodLadderSpot(map: TileMap, x: number, y: number): boolean {
-    const current = map.getTile(x, y);
-    const below = map.getTile(x, y + 1);
+    // Ensure at least one ladder connects to a previous ladder position
+    if (connectFrom.length > 0 && ladderPositions.length > 0) {
+      const targetX = this.rng.pick(connectFrom);
+      // Find nearest platform position
+      for (let dx = 0; dx < 5; dx++) {
+        for (const offset of [dx, -dx]) {
+          const x = targetX + offset;
+          if (x >= 0 && x < map.width && map.getTile(x, row) === TileType.BRICK) {
+            this.extendLadderDown(map, x, row);
+            if (!ladderPositions.includes(x)) {
+              ladderPositions.push(x);
+            }
+            break;
+          }
+        }
+      }
+    }
     
-    // Good spot: empty space above a brick
-    return current === TileType.EMPTY && 
-           (below === TileType.BRICK || below === TileType.BRICK_HARD);
+    return ladderPositions;
   }
   
-  private extendLadder(map: TileMap, x: number, startY: number): void {
-    // Extend upward until hitting something or reaching a platform above
-    let y = startY;
-    while (y >= 0) {
+  private extendLadderDown(map: TileMap, x: number, fromRow: number): void {
+    // Extend ladder downward to next solid surface
+    for (let y = fromRow + 1; y < map.height; y++) {
       const tile = map.getTile(x, y);
       if (tile === TileType.BRICK || tile === TileType.BRICK_HARD) {
-        break; // Hit a platform from below
+        break;
       }
       map.setTile(x, y, TileType.LADDER);
-      y--;
-      
-      // Check if we've connected to a platform above
-      if (y >= 0 && (map.getTile(x, y) === TileType.BRICK || map.getTile(x, y) === TileType.BRICK_HARD)) {
-        break;
-      }
-    }
-    
-    // Also extend downward through empty space
-    y = startY + 1;
-    while (y < map.height) {
-      const tile = map.getTile(x, y);
-      if (tile === TileType.BRICK || tile === TileType.BRICK_HARD) {
-        // Optionally replace brick with ladder to go through
-        if (this.rng.chance(0.3)) {
-          map.setTile(x, y, TileType.LADDER);
-        }
-        break;
-      } else if (tile === TileType.EMPTY || tile === TileType.LADDER) {
-        map.setTile(x, y, TileType.LADDER);
-      }
-      y++;
     }
   }
   
-  private ensureMinimumLadders(map: TileMap): void {
-    // Count ladders
-    let ladderCount = 0;
-    for (let y = 0; y < map.height; y++) {
-      for (let x = 0; x < map.width; x++) {
-        if (map.getTile(x, y) === TileType.LADDER) ladderCount++;
-      }
-    }
+  private addExtraLadders(map: TileMap): void {
+    // Add some random ladders for more paths
+    const extraLadders = Math.floor(this.difficulty.ladderDensity * 8);
     
-    // Need at least 15 ladder tiles
-    const minLadders = 15;
-    if (ladderCount < minLadders) {
-      // Add more ladders at random valid positions
-      for (let i = ladderCount; i < minLadders; i++) {
-        const x = this.rng.range(2, map.width - 2);
-        const y = this.rng.range(2, map.height - 2);
-        if (this.isGoodLadderSpot(map, x, y)) {
-          this.extendLadder(map, x, y);
+    for (let i = 0; i < extraLadders; i++) {
+      const x = this.rng.range(2, map.width - 2);
+      
+      // Find a platform
+      for (let y = 2; y < map.height - 2; y++) {
+        if (map.getTile(x, y) === TileType.BRICK && map.getTile(x, y - 1) === TileType.EMPTY) {
+          this.extendLadderDown(map, x, y - 1);
+          break;
         }
       }
     }
   }
   
   private createPoles(map: TileMap): void {
-    // Add horizontal poles/bars across gaps
-    for (let y = 2; y < map.height - 2; y++) {
-      if (!this.rng.chance(0.25)) continue; // 25% chance per row
+    // Add horizontal poles to cross gaps
+    for (let y = 2; y < map.height - 3; y++) {
+      if (!this.rng.chance(0.2)) continue;
       
-      // Find gaps in this row
-      let inGap = false;
-      let gapStart = 0;
-      
+      // Find gaps
+      let gapStart = -1;
       for (let x = 0; x < map.width; x++) {
         const tile = map.getTile(x, y);
-        const isEmpty = tile === TileType.EMPTY;
+        const below = map.getTile(x, y + 1);
         
-        if (isEmpty && !inGap) {
-          inGap = true;
-          gapStart = x;
-        } else if (!isEmpty && inGap) {
-          // End of gap - maybe add pole
-          const gapLength = x - gapStart;
-          if (gapLength >= 3 && gapLength <= 10 && this.rng.chance(0.4)) {
-            for (let px = gapStart; px < x; px++) {
-              map.setTile(px, y, TileType.POLE);
+        if (tile === TileType.EMPTY && below === TileType.EMPTY) {
+          if (gapStart < 0) gapStart = x;
+        } else {
+          if (gapStart >= 0) {
+            const gapLen = x - gapStart;
+            if (gapLen >= 3 && gapLen <= 10 && this.rng.chance(0.5)) {
+              for (let px = gapStart; px < x; px++) {
+                map.setTile(px, y, TileType.POLE);
+              }
             }
           }
-          inGap = false;
+          gapStart = -1;
         }
       }
     }
   }
   
   private addHardBricks(map: TileMap): void {
-    // Scatter some hard (indestructible) bricks
+    // Scatter some hard bricks
     for (let y = 1; y < map.height - 1; y++) {
       for (let x = 0; x < map.width; x++) {
-        if (map.getTile(x, y) === TileType.BRICK && this.rng.chance(0.08)) {
+        if (map.getTile(x, y) === TileType.BRICK && this.rng.chance(0.05)) {
           map.setTile(x, y, TileType.BRICK_HARD);
         }
       }
@@ -264,80 +249,97 @@ export class LevelGenerator {
   }
   
   private placePlayer(map: TileMap): void {
-    // Place player on ground floor or low platform
-    const validSpots: { x: number; y: number }[] = [];
+    // Place player on ground floor
+    const groundY = map.height - 2;
     
-    for (let x = 1; x < map.width - 1; x++) {
-      for (let y = map.height - 3; y < map.height; y++) {
-        if (this.isValidSpawnSpot(map, x, y)) {
-          validSpots.push({ x, y });
-        }
+    // Find valid spot on ground
+    for (let attempts = 0; attempts < 20; attempts++) {
+      const x = this.rng.range(2, map.width - 2);
+      if (map.getTile(x, groundY) === TileType.EMPTY || 
+          map.getTile(x, groundY) === TileType.LADDER) {
+        map.playerStart = { x, y: groundY };
+        return;
       }
     }
     
-    if (validSpots.length > 0) {
-      map.playerStart = this.rng.pick(validSpots);
-    } else {
-      // Fallback: bottom left area
-      map.playerStart = { x: 2, y: map.height - 2 };
+    // Fallback - find any empty spot on ground
+    for (let x = 1; x < map.width - 1; x++) {
+      if (!map.isSolid(x, groundY)) {
+        map.playerStart = { x, y: groundY };
+        return;
+      }
     }
-  }
-  
-  private isValidSpawnSpot(map: TileMap, x: number, y: number): boolean {
-    const tile = map.getTile(x, y);
-    const below = map.getTile(x, y + 1);
-    return (tile === TileType.EMPTY || tile === TileType.LADDER) &&
-           (below === TileType.BRICK || below === TileType.BRICK_HARD || below === TileType.LADDER);
+    
+    map.playerStart = { x: 2, y: groundY };
   }
   
   private placeGold(map: TileMap): void {
     const [minGold, maxGold] = this.difficulty.gold;
     const goldCount = this.rng.range(minGold, maxGold + 1);
     
-    // Find all valid gold positions
+    // Collect all valid positions
     const validSpots: { x: number; y: number }[] = [];
     
-    for (let x = 0; x < map.width; x++) {
-      for (let y = 0; y < map.height - 1; y++) {
+    for (let y = 1; y < map.height - 1; y++) {
+      for (let x = 0; x < map.width; x++) {
         if (this.isValidGoldSpot(map, x, y)) {
           validSpots.push({ x, y });
         }
       }
     }
     
-    // Shuffle and pick
     this.rng.shuffle(validSpots);
-    const goldSpots = validSpots.slice(0, Math.min(goldCount, validSpots.length));
     
-    for (const spot of goldSpots) {
+    // Place gold, preferring distributed placement
+    const placed: { x: number; y: number }[] = [];
+    
+    for (const spot of validSpots) {
+      if (placed.length >= goldCount) break;
+      
+      // Check distance from other gold
+      const tooClose = placed.some(p => 
+        Math.abs(p.x - spot.x) + Math.abs(p.y - spot.y) < 4
+      );
+      
+      if (!tooClose) {
+        map.setTile(spot.x, spot.y, TileType.GOLD);
+        map.goldPositions.push(spot);
+        placed.push(spot);
+      }
+    }
+    
+    // If we couldn't place enough with spacing, place remaining anywhere
+    for (const spot of validSpots) {
+      if (placed.length >= goldCount) break;
+      if (placed.some(p => p.x === spot.x && p.y === spot.y)) continue;
+      
       map.setTile(spot.x, spot.y, TileType.GOLD);
       map.goldPositions.push(spot);
+      placed.push(spot);
     }
   }
   
   private isValidGoldSpot(map: TileMap, x: number, y: number): boolean {
-    const tile = map.getTile(x, y);
-    const below = map.getTile(x, y + 1);
+    if (map.getTile(x, y) !== TileType.EMPTY) return false;
     
-    // Gold needs empty space with support below
-    return tile === TileType.EMPTY &&
-           (below === TileType.BRICK || 
-            below === TileType.BRICK_HARD || 
-            below === TileType.LADDER ||
-            below === TileType.POLE);
+    // Need support below
+    const below = map.getTile(x, y + 1);
+    return below === TileType.BRICK || 
+           below === TileType.BRICK_HARD || 
+           below === TileType.LADDER ||
+           below === TileType.BRICK_TRAP;
   }
   
   private placeEnemies(map: TileMap): void {
     const [minEnemies, maxEnemies] = this.difficulty.enemies;
     const enemyCount = this.rng.range(minEnemies, maxEnemies + 1);
     
-    // Find valid enemy spawn positions (not too close to player)
     const validSpots: { x: number; y: number }[] = [];
     
-    for (let x = 0; x < map.width; x++) {
-      for (let y = 0; y < map.height - 1; y++) {
+    for (let y = 0; y < map.height - 1; y++) {
+      for (let x = 0; x < map.width; x++) {
         if (this.isValidEnemySpot(map, x, y)) {
-          // Check distance from player
+          // Must be far from player start
           const dist = Math.abs(x - map.playerStart.x) + Math.abs(y - map.playerStart.y);
           if (dist > 8) {
             validSpots.push({ x, y });
@@ -355,44 +357,76 @@ export class LevelGenerator {
   }
   
   private isValidEnemySpot(map: TileMap, x: number, y: number): boolean {
-    return this.isValidSpawnSpot(map, x, y) &&
-           map.getTile(x, y) !== TileType.GOLD;
+    const tile = map.getTile(x, y);
+    if (tile !== TileType.EMPTY && tile !== TileType.LADDER) return false;
+    
+    const below = map.getTile(x, y + 1);
+    return below === TileType.BRICK || 
+           below === TileType.BRICK_HARD || 
+           below === TileType.LADDER;
   }
   
   private addExitLadders(map: TileMap): void {
-    // Add 1-3 exit ladders at the top
-    const numExits = this.rng.range(1, 4);
-    const positions: number[] = [];
-    
-    for (let i = 0; i < numExits; i++) {
-      let x: number;
-      let attempts = 0;
-      do {
-        x = this.rng.range(3, map.width - 3);
-        attempts++;
-      } while (positions.some(p => Math.abs(p - x) < 5) && attempts < 20);
-      
-      if (attempts < 20) {
-        positions.push(x);
-        
-        // Place exit ladder from top down to first platform
-        let y = 0;
-        while (y < 5) {
-          const tile = map.getTile(x, y);
-          if (tile === TileType.EMPTY || tile === TileType.LADDER) {
-            map.setTile(x, y, TileType.LADDER_EXIT);
-            map.exitLadders.push({ x, y });
-          } else {
-            break;
-          }
-          y++;
+    // Find existing ladders that could become exit ladders
+    const existingLadders: number[] = [];
+    for (let x = 2; x < map.width - 2; x++) {
+      // Check if there's a ladder reaching close to the top
+      for (let y = 0; y < 5; y++) {
+        if (map.getTile(x, y) === TileType.LADDER) {
+          existingLadders.push(x);
+          break;
         }
       }
+    }
+    
+    // Extend 1-2 existing ladders to be exit ladders
+    this.rng.shuffle(existingLadders);
+    const numExits = Math.min(this.rng.range(1, 3), existingLadders.length);
+    
+    for (let i = 0; i < numExits; i++) {
+      const x = existingLadders[i];
+      // Extend ladder to top
+      for (let y = 0; y < map.height; y++) {
+        const tile = map.getTile(x, y);
+        if (tile === TileType.LADDER || tile === TileType.EMPTY) {
+          map.setTile(x, y, TileType.LADDER_EXIT);
+          map.exitLadders.push({ x, y });
+        }
+        if (tile === TileType.BRICK || tile === TileType.BRICK_HARD) {
+          break;
+        }
+      }
+    }
+    
+    // If no existing ladders, create new exit ladder from highest platform
+    if (map.exitLadders.length === 0) {
+      // Find highest platform
+      let highestPlatformY = map.height;
+      let highestPlatformX = map.width / 2;
+      
+      for (let y = 1; y < map.height - 3; y++) {
+        for (let x = 3; x < map.width - 3; x++) {
+          if (map.getTile(x, y) === TileType.BRICK && map.getTile(x, y - 1) === TileType.EMPTY) {
+            if (y < highestPlatformY) {
+              highestPlatformY = y;
+              highestPlatformX = x;
+            }
+          }
+        }
+      }
+      
+      // Create exit ladder from this platform to top
+      for (let y = 0; y < highestPlatformY; y++) {
+        map.setTile(highestPlatformX, y, TileType.LADDER_EXIT);
+        map.exitLadders.push({ x: highestPlatformX, y });
+      }
+      
+      // Also add ladder going down from this platform
+      this.extendLadderDown(map, highestPlatformX, highestPlatformY);
     }
   }
   
   private generateFallback(): TileMap {
-    // Simple guaranteed-solvable level
     const map = new TileMap();
     
     // Ground
@@ -400,35 +434,49 @@ export class LevelGenerator {
       map.setTile(x, map.height - 1, TileType.BRICK);
     }
     
-    // Middle platform
-    for (let x = 5; x < 20; x++) {
-      map.setTile(x, 8, TileType.BRICK);
+    // Platform 1 (middle height)
+    for (let x = 3; x < 18; x++) {
+      map.setTile(x, 10, TileType.BRICK);
+    }
+    
+    // Platform 2 (higher)
+    for (let x = 10; x < 25; x++) {
+      map.setTile(x, 6, TileType.BRICK);
     }
     
     // Ladders
-    for (let y = 8; y < map.height - 1; y++) {
-      map.setTile(10, y, TileType.LADDER);
+    for (let y = 10; y < map.height - 1; y++) {
+      map.setTile(8, y, TileType.LADDER);
+    }
+    for (let y = 6; y < 10; y++) {
+      map.setTile(14, y, TileType.LADDER);
+    }
+    for (let y = 0; y < 6; y++) {
+      map.setTile(20, y, TileType.LADDER_EXIT);
+      map.exitLadders.push({ x: 20, y });
     }
     
-    // Exit ladder
-    for (let y = 0; y < 8; y++) {
-      map.setTile(15, y, TileType.LADDER_EXIT);
-      map.exitLadders.push({ x: 15, y });
+    // Poles
+    for (let x = 18; x < 24; x++) {
+      map.setTile(x, 10, TileType.POLE);
     }
     
     // Player start
     map.playerStart = { x: 3, y: map.height - 2 };
     
     // Gold
-    map.setTile(8, 7, TileType.GOLD);
-    map.goldPositions.push({ x: 8, y: 7 });
-    map.setTile(12, 7, TileType.GOLD);
-    map.goldPositions.push({ x: 12, y: 7 });
-    map.setTile(18, 7, TileType.GOLD);
-    map.goldPositions.push({ x: 18, y: 7 });
+    const goldSpots = [
+      { x: 5, y: 9 }, { x: 10, y: 9 }, { x: 15, y: 9 },
+      { x: 12, y: 5 }, { x: 18, y: 5 }, { x: 22, y: 5 }
+    ];
+    for (const spot of goldSpots) {
+      map.setTile(spot.x, spot.y, TileType.GOLD);
+      map.goldPositions.push(spot);
+    }
     
-    // Enemy
+    // Enemies
     map.enemyStarts.push({ x: 22, y: map.height - 2 });
+    map.enemyStarts.push({ x: 16, y: 9 });
     
     return map;
   }
