@@ -1,0 +1,16 @@
+{
+  "name": "loderunner2099",
+  "version": "1.0.0",
+  "description": "Lode Runner 2099 - Procedurally generated retro-futuristic platformer",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 8000",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 8000"
+  },
+  "devDependencies": {
+    "phaser": "^3.86.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.1"
+  }
+}
