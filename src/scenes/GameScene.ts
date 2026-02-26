@@ -282,10 +282,16 @@ export class GameScene extends Phaser.Scene {
           e !== excludeSelf && e.gridX === x && e.gridY === y && e.isTrapped()
         );
       };
-      // Check for ANY enemy at position (for preventing multiple enemies in same hole)
+      // Check for ANY enemy at position (for preventing stacking)
       enemy.isEnemyAt = (x: number, y: number, excludeSelf: Enemy) => {
         return this.enemies.some(e => 
           e !== excludeSelf && e.gridX === x && e.gridY === y
+        );
+      };
+      // Check for trapped enemy in hole (for preventing multiple in same hole)
+      enemy.isTrappedEnemyInHole = (x: number, y: number, excludeSelf: Enemy) => {
+        return this.enemies.some(e => 
+          e !== excludeSelf && e.gridX === x && e.gridY === y && e.isTrapped()
         );
       };
     }
@@ -562,7 +568,8 @@ export class GameScene extends Phaser.Scene {
         this.player.die();
       }
       for (const enemy of this.enemies) {
-        if (enemy.gridX === hole.x && enemy.gridY === hole.y) {
+        // Only kill enemy if they're still trapped in the hole (not climbing out)
+        if (enemy.gridX === hole.x && enemy.gridY === hole.y && enemy.isTrapped()) {
           enemy.kill();
         }
       }

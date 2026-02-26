@@ -30,8 +30,11 @@ export class Enemy {
   // Callback to check if there's another trapped enemy at a position (for walking over)
   public isTrappedEnemyAt: (x: number, y: number, excludeSelf: Enemy) => boolean = () => false;
   
-  // Callback to check if there's ANY enemy at a position (for preventing multiple enemies in same hole)
+  // Callback to check if there's ANY enemy at a position (for preventing stacking)
   public isEnemyAt: (x: number, y: number, excludeSelf: Enemy) => boolean = () => false;
+  
+  // Callback to check if there's a TRAPPED enemy at a position (for hole occupancy)
+  public isTrappedEnemyInHole: (x: number, y: number, excludeSelf: Enemy) => boolean = () => false;
   
   private scene: Phaser.Scene;
   private tileMap: TileMap;
@@ -132,10 +135,19 @@ export class Enemy {
     // Check if we fell into a hole
     const currentTile = this.tileMap.getTile(this.gridX, this.gridY);
     if (currentTile === TileType.HOLE && this.state !== EnemyState.FALLING) {
+      // Check if another enemy is already trapped in this hole
+      if (this.isTrappedEnemyInHole(this.gridX, this.gridY, this)) {
+        // Can't enter - another enemy is already trapped here
+        // Enemy should die (buried) or find another way
+        // For now, they get killed
+        this.kill();
+        return;
+      }
+      
       this.state = EnemyState.TRAPPED;
       // Enemy trapped time is LESS than hole duration so they can escape
       // if they fell in early enough
-      this.trappedTimer = CONFIG.ENEMY_IN_HOLE_MS || 2800;
+      this.trappedTimer = CONFIG.ENEMY_IN_HOLE_MS || 3500;
       
       // Drop gold if carrying
       if (this.hasGold) {

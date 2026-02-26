@@ -22,14 +22,14 @@ export const CONFIG = {
   DEFAULT_SPEED_INDEX: 2,
   
   // Timing - all values in MILLISECONDS for frame-rate independence
-  // C64 original at 60fps: hole=$b4 (180 frames = 3sec), enemy=38-77 frames
-  HOLE_DURATION_MS: 4000,       // 4 seconds for hole to refill
-  HOLE_WARNING_MS: 800,         // warning flash starts 0.8 sec before refill
+  HOLE_DURATION_MS: 5000,       // 5 seconds for hole to refill
+  HOLE_WARNING_MS: 1000,        // warning flash starts 1 sec before refill
   
   // Enemy escape timing - enemy can escape if they fell in early enough
-  ENEMY_IN_HOLE_MS: 2800,       // enemy trapped for 2.8 sec (less than hole duration!)
-  ENEMY_SHAKE_MS: 600,          // start shaking with 0.6 sec left
-  ENEMY_ESCAPE_MS: 300,         // climb out with 0.3 sec left
+  // Enemy trapped time MUST be less than hole duration for escape to work!
+  ENEMY_IN_HOLE_MS: 3500,       // enemy trapped for 3.5 sec (1.5 sec less than hole)
+  ENEMY_SHAKE_MS: 800,          // start shaking with 0.8 sec left on their timer
+  ENEMY_ESCAPE_MS: 400,         // climb out with 0.4 sec left on their timer
   DIG_DURATION: 12,   // frames to dig
   
   // Enemies
