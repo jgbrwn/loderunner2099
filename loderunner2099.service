@@ -1,0 +1,15 @@
+[Unit]
+Description=Lode Runner 2099 Game Server
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/loderunner2099
+ExecStart=/home/exedev/loderunner2099/server
+Restart=always
+RestartSec=5
+Environment=PORT=8000
+
+[Install]
+WantedBy=multi-user.target
