@@ -551,8 +551,8 @@ export class GameScene extends Phaser.Scene {
       }
     }
     
-    // Update holes
-    const { filled, warning } = this.tileMap.updateHoles();
+    // Update holes (pass delta in ms and speed multiplier)
+    const { filled, warning } = this.tileMap.updateHoles(delta, speedMult);
     for (const hole of filled) {
       this.updateTileSprite(hole.x, hole.y);
       getSoundManager().playHoleFill();
@@ -585,7 +585,7 @@ export class GameScene extends Phaser.Scene {
     for (const hole of this.tileMap.holes) {
       if (this.tileMap.getTile(hole.x, hole.y) === TileType.HOLE) {
         const sprite = this.tileSprites[hole.y]?.[hole.x];
-        if (sprite && hole.timer > CONFIG.HOLE_WARNING) {
+        if (sprite && hole.timerMs > CONFIG.HOLE_WARNING_MS) {
           const currentColor = sprite instanceof Phaser.GameObjects.Rectangle ? 
             sprite.fillColor : 0;
           if (currentColor !== 0x000000) {

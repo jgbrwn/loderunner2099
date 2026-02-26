@@ -106,11 +106,12 @@ export class Enemy {
     
     // Handle trapped state
     if (this.state === EnemyState.TRAPPED) {
-      this.trappedTimer -= delta;
+      // Apply speed multiplier to trapped timer (faster game = escape faster)
+      this.trappedTimer -= delta * speedMult;
       
-      // Convert frames to ms for threshold checks
-      const escapeThresholdMs = (CONFIG.ENEMY_ESCAPE_THRESHOLD || 10) * (1000 / 60);
-      const shakeThresholdMs = (CONFIG.ENEMY_SHAKE_THRESHOLD || 20) * (1000 / 60);
+      // Use millisecond constants directly
+      const escapeThresholdMs = CONFIG.ENEMY_ESCAPE_MS || 300;
+      const shakeThresholdMs = CONFIG.ENEMY_SHAKE_MS || 600;
       
       // Shake effect when close to escaping
       if (this.trappedTimer < shakeThresholdMs && this.trappedTimer > 0) {
@@ -132,10 +133,9 @@ export class Enemy {
     const currentTile = this.tileMap.getTile(this.gridX, this.gridY);
     if (currentTile === TileType.HOLE && this.state !== EnemyState.FALLING) {
       this.state = EnemyState.TRAPPED;
-      // Use C64-style timing: enemy trapped time is LESS than hole duration
-      // so enemies can escape before the hole fills
-      const enemyHoleFrames = CONFIG.ENEMY_IN_HOLE_TIME || 100;
-      this.trappedTimer = enemyHoleFrames * (1000 / 60); // Convert frames to ms
+      // Enemy trapped time is LESS than hole duration so they can escape
+      // if they fell in early enough
+      this.trappedTimer = CONFIG.ENEMY_IN_HOLE_MS || 2800;
       
       // Drop gold if carrying
       if (this.hasGold) {
@@ -472,8 +472,7 @@ export class Enemy {
   
   trapInHole(): void {
     this.state = EnemyState.TRAPPED;
-    const enemyHoleFrames = CONFIG.ENEMY_IN_HOLE_TIME || 100;
-    this.trappedTimer = enemyHoleFrames * (1000 / 60);
+    this.trappedTimer = CONFIG.ENEMY_IN_HOLE_MS || 2800;
     if (this.hasGold) {
       this.dropGold();
     }

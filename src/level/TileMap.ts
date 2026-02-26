@@ -3,7 +3,7 @@ import { CONFIG, TileType } from '../config';
 export interface Hole {
   x: number;
   y: number;
-  timer: number;
+  timerMs: number;      // time remaining in milliseconds
   originalTile: TileType;
 }
 
@@ -92,29 +92,32 @@ export class TileMap {
     
     const originalTile = this.getTile(x, y);
     this.setTile(x, y, TileType.HOLE);
-    // Apply difficulty multiplier to hole duration
-    const duration = Math.floor(CONFIG.HOLE_DURATION * this.holeDurationMultiplier);
+    // Apply difficulty multiplier to hole duration (in milliseconds)
+    const durationMs = CONFIG.HOLE_DURATION_MS * this.holeDurationMultiplier;
     this.holes.push({
       x, y,
-      timer: duration,
+      timerMs: durationMs,
       originalTile
     });
     return true;
   }
   
-  // Update holes (call each frame)
-  updateHoles(): { filled: Hole[], warning: Hole[] } {
+  // Update holes with delta time (milliseconds) and game speed multiplier
+  updateHoles(deltaMs: number, speedMultiplier: number = 1): { filled: Hole[], warning: Hole[] } {
     const filled: Hole[] = [];
     const warning: Hole[] = [];
     
+    // Apply speed multiplier - faster game = holes fill faster
+    const adjustedDelta = deltaMs * speedMultiplier;
+    
     this.holes = this.holes.filter(hole => {
-      hole.timer--;
+      hole.timerMs -= adjustedDelta;
       
-      if (hole.timer <= CONFIG.HOLE_WARNING && hole.timer > 0) {
+      if (hole.timerMs <= CONFIG.HOLE_WARNING_MS && hole.timerMs > 0) {
         warning.push(hole);
       }
       
-      if (hole.timer <= 0) {
+      if (hole.timerMs <= 0) {
         this.setTile(hole.x, hole.y, hole.originalTile);
         filled.push(hole);
         return false;
