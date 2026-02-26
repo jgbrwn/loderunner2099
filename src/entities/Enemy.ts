@@ -27,6 +27,9 @@ export class Enemy {
     return this.state === EnemyState.TRAPPED;
   }
   
+  // Callback to check if there's another trapped enemy at a position
+  public isTrappedEnemyAt: (x: number, y: number, excludeSelf: Enemy) => boolean = () => false;
+  
   private scene: Phaser.Scene;
   private tileMap: TileMap;
   private player: Player;
@@ -184,6 +187,8 @@ export class Enemy {
     if (this.tileMap.isBar(this.gridX, this.gridY)) return false;
     if (this.gridY + 1 >= this.tileMap.height) return false;
     if (this.tileMap.isSupport(this.gridX, this.gridY + 1)) return false;
+    // Don't fall if there's another trapped enemy below (can walk over them)
+    if (this.isTrappedEnemyAt(this.gridX, this.gridY + 1, this)) return false;
     // Can fall through holes
     if (this.tileMap.getTile(this.gridX, this.gridY + 1) === TileType.HOLE) return true;
     return true;

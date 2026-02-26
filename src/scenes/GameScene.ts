@@ -202,6 +202,15 @@ export class GameScene extends Phaser.Scene {
       this.enemies.push(enemy);
     }
     
+    // Set up trapped enemy checker for all enemies - they can walk over each other when trapped
+    for (const enemy of this.enemies) {
+      enemy.isTrappedEnemyAt = (x: number, y: number, excludeSelf: Enemy) => {
+        return this.enemies.some(e => 
+          e !== excludeSelf && e.gridX === x && e.gridY === y && e.isTrapped()
+        );
+      };
+    }
+    
     this.updateHUD();
   }
   

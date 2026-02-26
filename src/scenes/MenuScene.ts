@@ -51,16 +51,16 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1
     });
     
-    // High score display - positioned below title
+    // High score display - at bottom of menu, above instructions
     const topScore = getHighScores().getTopScore();
-    this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 128, '', {
+    this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 355, '', {
       fontFamily: 'monospace',
-      fontSize: '12px',
+      fontSize: '11px',
       color: '#ffff00'
     });
     this.highScoreText.setOrigin(0.5);
     if (topScore) {
-      this.highScoreText.setText(`HIGH: ${topScore.score} (${topScore.name} L${topScore.level})`);
+      this.highScoreText.setText(`HIGH SCORE: ${topScore.score} by ${topScore.name}`);
     }
     
     // Difficulty selection
@@ -109,7 +109,7 @@ export class MenuScene extends Phaser.Scene {
     this.seedText.setOrigin(0.5);
     
     // Instructions
-    const instructions = this.add.text(CONFIG.GAME_WIDTH / 2, 375, 
+    const instructions = this.add.text(CONFIG.GAME_WIDTH / 2, 390, 
       'Arrow Keys: Move | Z/X: Dig | +/-: Speed\n' +
       'P: Pause | T: Theme | C: CRT | M: Mute\n\n' +
       'Press ENTER or tap to start', {
