@@ -313,11 +313,94 @@ export class Enemy {
     if (!this.hasGold) return;
     
     this.hasGold = false;
-    // Drop gold at current position
-    this.tileMap.setTile(this.gridX, this.gridY, TileType.GOLD);
-    this.tileMap.goldPositions.push({ x: this.gridX, y: this.gridY });
+    
+    // Find a safe position to drop gold
+    // Safe = empty, pole, or ladder (not solid, not a hole)
+    let dropX = this.gridX;
+    let dropY = this.gridY;
+    
+    const currentTile = this.tileMap.getTile(dropX, dropY);
+    const isSafeForGold = (tile: TileType) => 
+      tile === TileType.EMPTY || 
+      tile === TileType.POLE || 
+      tile === TileType.LADDER || 
+      tile === TileType.LADDER_EXIT;
+    
+    // If current position is NOT safe (hole, solid brick, etc), find safe spot
+    if (!isSafeForGold(currentTile)) {
+      // Try positions: above, left, right, diagonals, then search whole map
+      const candidates = [
+        { x: dropX, y: dropY - 1 },      // Above
+        { x: dropX - 1, y: dropY },      // Left
+        { x: dropX + 1, y: dropY },      // Right
+        { x: dropX, y: dropY - 2 },      // Two above
+        { x: dropX - 1, y: dropY - 1 },  // Upper-left
+        { x: dropX + 1, y: dropY - 1 },  // Upper-right
+        { x: dropX - 2, y: dropY },      // Two left
+        { x: dropX + 2, y: dropY },      // Two right
+      ];
+      
+      let foundSafe = false;
+      for (const pos of candidates) {
+        if (pos.x >= 0 && pos.x < this.tileMap.width && 
+            pos.y >= 0 && pos.y < this.tileMap.height) {
+          const tile = this.tileMap.getTile(pos.x, pos.y);
+          if (isSafeForGold(tile)) {
+            dropX = pos.x;
+            dropY = pos.y;
+            foundSafe = true;
+            break;
+          }
+        }
+      }
+      
+      // If no adjacent safe spot, search the entire map
+      if (!foundSafe) {
+        console.warn('Gold dropped in unsafe position, searching for safe spot...');
+        // Search from top to bottom, prefer positions near original
+        for (let radius = 1; radius < Math.max(this.tileMap.width, this.tileMap.height) && !foundSafe; radius++) {
+          for (let dy = -radius; dy <= radius && !foundSafe; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+              const nx = this.gridX + dx;
+              const ny = this.gridY + dy;
+              if (nx >= 0 && nx < this.tileMap.width && 
+                  ny >= 0 && ny < this.tileMap.height) {
+                const tile = this.tileMap.getTile(nx, ny);
+                if (isSafeForGold(tile)) {
+                  dropX = nx;
+                  dropY = ny;
+                  foundSafe = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      if (!foundSafe) {
+        console.error('CRITICAL: Could not find ANY safe spot for gold!');
+        // Last resort: drop at top-left corner area
+        for (let y = 0; y < this.tileMap.height; y++) {
+          for (let x = 0; x < this.tileMap.width; x++) {
+            const tile = this.tileMap.getTile(x, y);
+            if (isSafeForGold(tile)) {
+              dropX = x;
+              dropY = y;
+              foundSafe = true;
+              break;
+            }
+          }
+          if (foundSafe) break;
+        }
+      }
+    }
+    
+    // Drop gold at the safe position
+    this.tileMap.setTile(dropX, dropY, TileType.GOLD);
+    this.tileMap.goldPositions.push({ x: dropX, y: dropY });
     // Emit event to create gold sprite
-    this.scene.events.emit('goldDropped', { x: this.gridX, y: this.gridY });
+    this.scene.events.emit('goldDropped', { x: dropX, y: dropY });
   }
   
   private checkPlayerCollision(): void {
@@ -355,23 +438,64 @@ export class Enemy {
   }
   
   private respawn(): void {
-    // Respawn at top of level
-    this.gridY = 0;
-    this.targetY = 0;
-    this.gridX = Math.floor(Math.random() * this.tileMap.width);
-    this.targetX = this.gridX;
+    // Respawn at top of level - find a valid spawn position
+    // Try to find an empty spot on a ladder or on top of a platform near the top
     
-    // Find valid spawn column
-    for (let attempts = 0; attempts < 10; attempts++) {
-      const tile = this.tileMap.getTile(this.gridX, 0);
-      if (!this.tileMap.isSolid(this.gridX, 0)) break;
-      this.gridX = (this.gridX + 1) % this.tileMap.width;
-      this.targetX = this.gridX;
+    let bestX = Math.floor(this.tileMap.width / 2);
+    let bestY = 0;
+    let foundValid = false;
+    
+    // First priority: find a ladder near the top
+    for (let y = 0; y < 5 && !foundValid; y++) {
+      for (let x = 0; x < this.tileMap.width; x++) {
+        const tile = this.tileMap.getTile(x, y);
+        if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT) {
+          bestX = x;
+          bestY = y;
+          foundValid = true;
+          break;
+        }
+      }
     }
+    
+    // Second priority: any empty space near top
+    if (!foundValid) {
+      for (let y = 0; y < this.tileMap.height && !foundValid; y++) {
+        for (let x = 0; x < this.tileMap.width; x++) {
+          const tile = this.tileMap.getTile(x, y);
+          if (tile === TileType.EMPTY || tile === TileType.POLE) {
+            bestX = x;
+            bestY = y;
+            foundValid = true;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Randomize horizontally among valid top-row positions
+    const validTopPositions: number[] = [];
+    for (let x = 0; x < this.tileMap.width; x++) {
+      const tile = this.tileMap.getTile(x, bestY);
+      if (!this.tileMap.isSolid(x, bestY)) {
+        validTopPositions.push(x);
+      }
+    }
+    
+    if (validTopPositions.length > 0) {
+      bestX = validTopPositions[Math.floor(Math.random() * validTopPositions.length)];
+    }
+    
+    this.gridX = bestX;
+    this.gridY = bestY;
+    this.targetX = bestX;
+    this.targetY = bestY;
     
     this.state = EnemyState.IDLE;
     this.moveProgress = 0;
+    this.hasGold = false; // Make sure we don't have gold after respawn
     this.sprite.setAlpha(1);
+    this.updateSpritePosition();
   }
   
   private updateSpritePosition(): void {

@@ -7,11 +7,15 @@ export class LevelGenerator {
   private rng: SeededRandom;
   private difficulty: DifficultySettings;
   private checker: SolvabilityChecker;
+  private levelNumber: number;
+  private difficultyKey: string;
   
-  constructor(seed: string | number, difficultyKey: string = 'normal') {
+  constructor(seed: string | number, difficultyKey: string = 'normal', levelNumber: number = 1) {
     this.rng = new SeededRandom(seed);
     this.difficulty = DIFFICULTIES[difficultyKey] || DIFFICULTIES.normal;
     this.checker = new SolvabilityChecker();
+    this.levelNumber = levelNumber;
+    this.difficultyKey = difficultyKey;
   }
   
   generate(maxAttempts = 100): TileMap {
@@ -491,7 +495,24 @@ export class LevelGenerator {
   }
   
   private placeEnemies(map: TileMap): void {
-    const [minEnemies, maxEnemies] = this.difficulty.enemies;
+    const [baseMin, baseMax] = this.difficulty.enemies;
+    
+    // Scale enemy count with level progression
+    // Every 5 levels, add 1 to both min and max (capped)
+    const levelBonus = Math.floor((this.levelNumber - 1) / 5);
+    
+    // Max enemies caps based on difficulty:
+    // Easy: max 4, Normal: max 5, Hard: max 6, Ninja: max 7
+    const maxCaps: { [key: string]: number } = {
+      easy: 4,
+      normal: 5,
+      hard: 6,
+      ninja: 7
+    };
+    const maxCap = maxCaps[this.difficultyKey] || 5;
+    
+    const minEnemies = Math.min(baseMin + levelBonus, maxCap - 1);
+    const maxEnemies = Math.min(baseMax + levelBonus, maxCap);
     const enemyCount = this.rng.range(minEnemies, maxEnemies + 1);
     
     const validSpots: { x: number; y: number }[] = [];

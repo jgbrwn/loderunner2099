@@ -189,7 +189,7 @@ export class GameScene extends Phaser.Scene {
     
     // Generate new level with seed + level number
     const seed = `${this.seedCode}-L${this.level}`;
-    const generator = new LevelGenerator(seed, this.difficulty);
+    const generator = new LevelGenerator(seed, this.difficulty, this.level);
     this.tileMap = generator.generate();
     
     // Render tiles
