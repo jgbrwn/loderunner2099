@@ -42,6 +42,7 @@ export class GameScene extends Phaser.Scene {
   
   // HUD elements
   private hudText!: Phaser.GameObjects.Text;
+  private hudControls!: Phaser.GameObjects.Text;
   private messageText!: Phaser.GameObjects.Text;
   private hudBg!: Phaser.GameObjects.Rectangle;
   
@@ -53,6 +54,11 @@ export class GameScene extends Phaser.Scene {
   private keyTheme!: Phaser.Input.Keyboard.Key;
   private keyCRT!: Phaser.Input.Keyboard.Key;
   private keyMute!: Phaser.Input.Keyboard.Key;
+  private keyEsc!: Phaser.Input.Keyboard.Key;
+  
+  // ESC menu tracking
+  private escPressedOnce: boolean = false;
+  private escPressTime: number = 0;
   
   // Animation tracking
   private lastStepTime: number = 0;
@@ -95,27 +101,37 @@ export class GameScene extends Phaser.Scene {
     this.keyTheme = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.T);
     this.keyCRT = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.C);
     this.keyMute = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+    this.keyEsc = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     
     // Also bind = for speed up
     this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.NUMPAD_ADD);
     
-    // Create HUD background
+    // Create HUD background (taller to fit 2 lines)
     this.hudBg = this.add.rectangle(
       CONFIG.GAME_WIDTH / 2,
-      CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE,
+      CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE * 1.5,
       CONFIG.GAME_WIDTH,
-      CONFIG.TILE_SIZE * 2,
+      CONFIG.TILE_SIZE * 3,
       this.theme.hudBg
     );
     this.hudBg.setDepth(50);
     
-    // Create HUD text
-    this.hudText = this.add.text(10, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 8, '', {
+    // Create HUD text (score, lives, etc)
+    this.hudText = this.add.text(10, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 4, '', {
       fontFamily: 'monospace',
-      fontSize: '14px',
+      fontSize: '13px',
       color: '#' + this.theme.hudText.toString(16).padStart(6, '0')
     });
     this.hudText.setDepth(51);
+    
+    // Create HUD controls text (keyboard shortcuts)
+    this.hudControls = this.add.text(10, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 22, 
+      'Z/X:Dig | +/-:Speed | P:Pause | T:Theme | C:CRT | M:Mute | R:Restart | ESC:Menu', {
+      fontFamily: 'monospace',
+      fontSize: '10px',
+      color: '#666688'
+    });
+    this.hudControls.setDepth(51);
     
     // Message text (centered)
     this.messageText = this.add.text(
@@ -370,6 +386,24 @@ export class GameScene extends Phaser.Scene {
   }
   
   update(time: number, delta: number): void {
+    // Handle ESC key - double tap to return to menu
+    if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
+      if (this.escPressedOnce && time - this.escPressTime < 1000) {
+        // Double tap - return to menu
+        this.scene.start('MenuScene');
+        return;
+      } else {
+        // First tap - show hint
+        this.escPressedOnce = true;
+        this.escPressTime = time;
+        this.showMessage('Press ESC again to return to menu', 1000);
+      }
+    }
+    // Reset ESC state after timeout
+    if (this.escPressedOnce && time - this.escPressTime >= 1000) {
+      this.escPressedOnce = false;
+    }
+    
     // Handle system keys
     if (Phaser.Input.Keyboard.JustDown(this.keyPause)) {
       this.paused = !this.paused;

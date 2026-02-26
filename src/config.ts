@@ -9,7 +9,7 @@ export const CONFIG = {
   
   // Calculated game dimensions
   get GAME_WIDTH() { return this.GRID_WIDTH * this.TILE_SIZE; }, // 672
-  get GAME_HEIGHT() { return (this.GRID_HEIGHT + 2) * this.TILE_SIZE; }, // 432 (extra rows for HUD)
+  get GAME_HEIGHT() { return (this.GRID_HEIGHT + 3) * this.TILE_SIZE; }, // 456 (extra rows for HUD with controls)
   
   // Viewport (16:9 with letterboxing)
   VIEWPORT_WIDTH: 896,

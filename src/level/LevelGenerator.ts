@@ -552,9 +552,9 @@ export class LevelGenerator {
       }
     }
     
-    // Extend 1-2 existing ladders to be exit ladders
+    // Extend 1 existing ladder to be exit ladder (only 1 for clearer gameplay)
     this.rng.shuffle(existingLadders);
-    const numExits = Math.min(this.rng.range(1, 3), existingLadders.length);
+    const numExits = Math.min(1, existingLadders.length);
     
     for (let i = 0; i < numExits; i++) {
       const x = existingLadders[i];
