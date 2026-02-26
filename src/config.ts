@@ -64,6 +64,7 @@ export enum TileType {
 // Difficulty settings
 export interface DifficultySettings {
   name: string;
+  lives: number;              // starting lives
   enemies: [number, number];  // min, max
   gold: [number, number];
   ladderDensity: number;      // 0-1
@@ -75,6 +76,7 @@ export interface DifficultySettings {
 export const DIFFICULTIES: Record<string, DifficultySettings> = {
   easy: {
     name: 'EASY',
+    lives: 5,
     enemies: [1, 2],
     gold: [5, 8],
     ladderDensity: 0.7,
@@ -84,6 +86,7 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
   },
   normal: {
     name: 'NORMAL',
+    lives: 7,
     enemies: [2, 3],
     gold: [8, 12],
     ladderDensity: 0.5,
@@ -93,6 +96,7 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
   },
   hard: {
     name: 'HARD',
+    lives: 9,
     enemies: [3, 4],
     gold: [12, 16],
     ladderDensity: 0.35,
@@ -102,6 +106,7 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
   },
   ninja: {
     name: 'NINJA',
+    lives: 11,
     enemies: [4, 5],
     gold: [16, 20],
     ladderDensity: 0.25,

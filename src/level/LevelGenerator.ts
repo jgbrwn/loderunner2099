@@ -66,22 +66,25 @@ export class LevelGenerator {
     // Step 5: Add poles/bars
     this.createPoles(map);
     
-    // Step 6: Add some hard bricks
+    // Step 6: Add some hard bricks (but not blocking ladders)
     this.addHardBricks(map);
     
     // Step 7: Convert some bricks to trap bricks
     this.addTrapBricks(map);
     
-    // Step 8: Place player start (bottom area)
+    // Step 8: Ensure ladders are accessible (clear blocking bricks)
+    this.ensureLadderAccessibility(map);
+    
+    // Step 9: Place player start (bottom area)
     this.placePlayer(map);
     
-    // Step 9: Place gold (after player so we know start position)
+    // Step 10: Place gold (only in reachable spots)
     this.placeGold(map);
     
-    // Step 10: Place enemies
+    // Step 11: Place enemies
     this.placeEnemies(map);
     
-    // Step 11: Add exit ladders at top (using existing ladders)
+    // Step 12: Add exit ladders at top (using existing ladders)
     this.addExitLadders(map);
     
     return map;
@@ -242,7 +245,63 @@ export class LevelGenerator {
     for (let y = 1; y < map.height - 1; y++) {
       for (let x = 0; x < map.width; x++) {
         if (map.getTile(x, y) === TileType.BRICK && this.rng.chance(chance)) {
+          // Don't trap brick if it's directly above a ladder
+          if (map.getTile(x, y + 1) === TileType.LADDER) continue;
           map.setTile(x, y, TileType.BRICK_TRAP);
+        }
+      }
+    }
+  }
+  
+  /**
+   * Ensure ladders have accessible entry/exit points.
+   * Remove bricks that block ladder tops.
+   */
+  private ensureLadderAccessibility(map: TileMap): void {
+    for (let x = 0; x < map.width; x++) {
+      for (let y = 1; y < map.height - 1; y++) {
+        const tile = map.getTile(x, y);
+        
+        // If there's a ladder here
+        if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT) {
+          // Check if there's a brick directly above that would block it
+          const above = map.getTile(x, y - 1);
+          if (above === TileType.BRICK || above === TileType.BRICK_TRAP) {
+            // Check if there's a way to reach the ladder from the side
+            const leftClear = x > 0 && !map.isSolid(x - 1, y);
+            const rightClear = x < map.width - 1 && !map.isSolid(x + 1, y);
+            
+            // If no side access and ladder continues up, we need platform access
+            if (!leftClear && !rightClear) {
+              // Remove the blocking brick and make it a platform edge
+              map.setTile(x, y - 1, TileType.EMPTY);
+            }
+          }
+          
+          // Ensure ladder top has an accessible entry point
+          // Find the top of this ladder
+          let ladderTop = y;
+          while (ladderTop > 0 && (map.getTile(x, ladderTop - 1) === TileType.LADDER || map.getTile(x, ladderTop - 1) === TileType.LADDER_EXIT)) {
+            ladderTop--;
+          }
+          
+          // If at the very top of map, it's an exit - ok
+          if (ladderTop === 0) continue;
+          
+          // Otherwise, ensure there's a platform to step onto at ladder top
+          // The tile above ladder top should be empty, and there should be
+          // at least one side accessible
+          const aboveTop = map.getTile(x, ladderTop - 1);
+          if (aboveTop === TileType.BRICK || aboveTop === TileType.BRICK_HARD || aboveTop === TileType.BRICK_TRAP) {
+            // Ladder is blocked! Check if we can access from sides at ladderTop
+            const leftAccessible = x > 0 && !map.isSolid(x - 1, ladderTop) && map.isSupport(x - 1, ladderTop + 1);
+            const rightAccessible = x < map.width - 1 && !map.isSolid(x + 1, ladderTop) && map.isSupport(x + 1, ladderTop + 1);
+            
+            if (!leftAccessible && !rightAccessible) {
+              // No side access, need to clear the blocking brick
+              map.setTile(x, ladderTop - 1, TileType.EMPTY);
+            }
+          }
         }
       }
     }

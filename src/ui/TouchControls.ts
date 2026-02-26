@@ -30,8 +30,8 @@ export class TouchControls {
     this.container.setDepth(900);
     this.container.setAlpha(0.6);
     
-    // Only show on touch devices
-    if (this.isTouchDevice()) {
+    // Only show on mobile/tablet devices (not laptops with touchscreens)
+    if (this.isMobileOrTablet()) {
       this.createControls();
       this.enabled = true;
     } else {
@@ -39,8 +39,20 @@ export class TouchControls {
     }
   }
   
-  private isTouchDevice(): boolean {
-    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  private isMobileOrTablet(): boolean {
+    // Check for actual mobile/tablet devices, not just touch capability
+    // Laptops with touchscreens should NOT show touch controls
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+    const isTablet = /(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(userAgent);
+    
+    // Also check screen width - if wider than typical tablet, assume laptop
+    const isSmallScreen = window.innerWidth <= 1024;
+    
+    // Must be mobile/tablet AND have touch AND be small screen
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    
+    return hasTouch && (isMobile || isTablet) && isSmallScreen;
   }
   
   private createControls(): void {

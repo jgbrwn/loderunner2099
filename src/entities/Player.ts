@@ -163,22 +163,30 @@ export class Player {
     
     // Vertical movement rules
     if (dy !== 0) {
+      const onLadder = this.tileMap.isClimbable(this.gridX, this.gridY);
+      const onBar = this.tileMap.isBar(this.gridX, this.gridY);
+      
       // Can only go up if on ladder
       if (dy < 0) {
-        if (!this.tileMap.isClimbable(this.gridX, this.gridY) && 
-            !this.tileMap.isClimbable(newX, newY)) {
+        if (!onLadder && !this.tileMap.isClimbable(newX, newY)) {
           return false;
         }
+        this.state = PlayerState.CLIMBING;
       }
-      // Can only go down if ladder below or on ladder
+      // Can go down if: on ladder, on bar (drop), or target is ladder/hole
       if (dy > 0) {
-        if (!this.tileMap.isClimbable(this.gridX, this.gridY) && 
-            !this.tileMap.isClimbable(newX, newY) &&
-            targetTile !== TileType.HOLE) {
+        if (onBar) {
+          // Drop from bar - start falling
+          this.state = PlayerState.FALLING;
+          this.targetY = newY;
+          this.moveProgress = 0.01;
+          return true;
+        }
+        if (!onLadder && !this.tileMap.isClimbable(newX, newY) && targetTile !== TileType.HOLE) {
           return false;
         }
+        this.state = PlayerState.CLIMBING;
       }
-      this.state = PlayerState.CLIMBING;
     }
     
     // Horizontal movement rules

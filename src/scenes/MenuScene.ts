@@ -141,6 +141,9 @@ export class MenuScene extends Phaser.Scene {
     spaceKey.on('down', () => this.startGame());
     
     this.updateDifficultyDisplay();
+    
+    // Parse URL parameters for shared games (after UI is created)
+    this.parseURLParams();
   }
   
   update(): void {
@@ -190,5 +193,36 @@ export class MenuScene extends Phaser.Scene {
       difficulty: this.difficultyKeys[this.selectedDifficulty],
       seed: seed
     });
+  }
+  
+  /**
+   * Parse URL query params for shared game links
+   */
+  private parseURLParams(): void {
+    const params = new URLSearchParams(window.location.search);
+    
+    const seed = params.get('seed');
+    if (seed) {
+      this.seedInput = seed.toUpperCase().substring(0, 8);
+      this.updateSeedDisplay();
+    }
+    
+    const diff = params.get('diff');
+    if (diff && this.difficultyKeys.includes(diff)) {
+      const index = this.difficultyKeys.indexOf(diff);
+      this.selectedDifficulty = index;
+      this.updateDifficultyDisplay();
+    }
+    
+    // If both seed and difficulty are in URL, show "shared game" notice
+    if (seed && diff) {
+      const shareNotice = this.add.text(CONFIG.GAME_WIDTH / 2, 125,
+        `\u2192 SHARED GAME: ${seed} [${diff.toUpperCase()}] \u2190`, {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#00ff88'
+      });
+      shareNotice.setOrigin(0.5);
+    }
   }
 }

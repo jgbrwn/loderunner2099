@@ -66,7 +66,7 @@ export class GameScene extends Phaser.Scene {
     this.difficulty = data.difficulty || 'normal';
     this.seedCode = data.seed || generateSeedCode();
     this.score = 0;
-    this.lives = 3;
+    this.lives = DIFFICULTIES[this.difficulty]?.lives || 5;
     this.level = 1;
     this.gameOver = false;
   }
@@ -153,6 +153,9 @@ export class GameScene extends Phaser.Scene {
     
     // Touch controls (on top of CRT)
     this.touchControls = new TouchControls(this);
+    
+    // Update URL for sharing
+    this.updateShareURL();
   }
   
   private generateLevel(): void {
@@ -371,7 +374,7 @@ export class GameScene extends Phaser.Scene {
       this.seedCode = generateSeedCode();
       this.level = 1;
       this.score = 0;
-      this.lives = 3;
+      this.lives = DIFFICULTIES[this.difficulty]?.lives || 5;
       this.gameOver = false;
       this.generateLevel();
     }
@@ -599,7 +602,7 @@ export class GameScene extends Phaser.Scene {
   
   private restartLevel(): void {
     if (this.gameOver) {
-      this.lives = 3;
+      this.lives = DIFFICULTIES[this.difficulty]?.lives || 5;
       this.score = 0;
       this.level = 1;
       this.gameOver = false;
@@ -670,6 +673,27 @@ export class GameScene extends Phaser.Scene {
       `[${diffName}]  ` +
       `SEED: ${this.seedCode}`
     );
+  }
+  
+  /**
+   * Update URL with current game state for sharing
+   */
+  private updateShareURL(): void {
+    const params = new URLSearchParams();
+    params.set('seed', this.seedCode);
+    params.set('diff', this.difficulty);
+    const newURL = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, '', newURL);
+  }
+  
+  /**
+   * Get the shareable URL for current game
+   */
+  getShareURL(): string {
+    const params = new URLSearchParams();
+    params.set('seed', this.seedCode);
+    params.set('diff', this.difficulty);
+    return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
   }
   
   shutdown(): void {
