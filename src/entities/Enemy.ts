@@ -22,6 +22,11 @@ export class Enemy {
   public state: EnemyState = EnemyState.IDLE;
   public hasGold: boolean = false;
   
+  /** Check if enemy is currently trapped in a hole */
+  public isTrapped(): boolean {
+    return this.state === EnemyState.TRAPPED;
+  }
+  
   private scene: Phaser.Scene;
   private tileMap: TileMap;
   private player: Player;

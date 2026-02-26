@@ -33,6 +33,9 @@ export class Player {
   private animTimer: number = 0;
   private animFrame: number = 0;
   
+  // Callback to check if there's a trapped enemy at a position (can walk over them)
+  public isTrappedEnemyAt: (x: number, y: number) => boolean = () => false;
+  
   constructor(scene: Phaser.Scene, tileMap: TileMap, gridX: number, gridY: number, color: number) {
     this.scene = scene;
     this.tileMap = tileMap;
@@ -144,6 +147,8 @@ export class Player {
     // Don't fall if there's support below
     if (this.gridY + 1 >= this.tileMap.height) return false;
     if (this.tileMap.isSupport(this.gridX, this.gridY + 1)) return false;
+    // Don't fall if there's a trapped enemy below (can walk over them)
+    if (this.isTrappedEnemyAt(this.gridX, this.gridY + 1)) return false;
     
     return true;
   }

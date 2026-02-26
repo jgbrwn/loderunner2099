@@ -16,8 +16,8 @@ export const CONFIG = {
   VIEWPORT_HEIGHT: 504,
   
   // Speed settings
-  BASE_SPEED: 150, // pixels per second
-  FALL_SPEED: 200,
+  BASE_SPEED: 100, // pixels per second (reduced for better gameplay)
+  FALL_SPEED: 140,
   SPEED_MULTIPLIERS: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
   DEFAULT_SPEED_INDEX: 2,
   

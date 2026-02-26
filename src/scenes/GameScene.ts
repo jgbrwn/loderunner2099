@@ -180,6 +180,13 @@ export class GameScene extends Phaser.Scene {
       this.theme.player
     );
     
+    // Set up trapped enemy checker - player can walk over trapped enemies
+    this.player.isTrappedEnemyAt = (x: number, y: number) => {
+      return this.enemies.some(e => 
+        e.gridX === x && e.gridY === y && e.isTrapped()
+      );
+    };
+    
     // Create enemies
     const diffSettings = DIFFICULTIES[this.difficulty];
     for (const start of this.tileMap.enemyStarts) {

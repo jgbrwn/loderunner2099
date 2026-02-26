@@ -51,9 +51,9 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1
     });
     
-    // High score display - positioned carefully to not overlap with share notice
+    // High score display - positioned below title
     const topScore = getHighScores().getTopScore();
-    this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 395, '', {
+    this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 128, '', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#ffff00'
