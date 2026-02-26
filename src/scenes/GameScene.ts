@@ -59,6 +59,7 @@ export class GameScene extends Phaser.Scene {
   // ESC menu tracking
   private escPressedOnce: boolean = false;
   private escPressTime: number = 0;
+  private escKeyWasDown: boolean = false;
 
   
   // Animation tracking
@@ -82,6 +83,10 @@ export class GameScene extends Phaser.Scene {
     // Reset ESC state
     this.escPressedOnce = false;
     this.escPressTime = 0;
+    this.escKeyWasDown = false;
+    
+    // Reset all keyboard states
+    this.input.keyboard!.resetKeys();
     
     // Initialize sound
     getSoundManager().resume();
@@ -395,12 +400,18 @@ export class GameScene extends Phaser.Scene {
   
   update(time: number, delta: number): void {
     // Handle ESC key - double tap to return to menu
-    if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
+    // Use isDown with a manual check to avoid JustDown issues
+    const escDown = this.keyEsc.isDown;
+    if (escDown && !this.escKeyWasDown) {
+      // Key was just pressed this frame
       const now = Date.now();
       if (this.escPressedOnce && now - this.escPressTime < 2000) {
         // Double tap - return to menu
         this.escPressedOnce = false;
-        this.input.keyboard!.resetKeys();
+        // Signal MenuScene to reset seed
+        (window as any).__RESET_SEED_ON_MENU__ = true;
+        // Stop the scene and start menu
+        this.scene.stop();
         this.scene.start('MenuScene');
         return;
       } else {
@@ -410,6 +421,7 @@ export class GameScene extends Phaser.Scene {
         this.showMessage('Press ESC again to return to menu', 2000);
       }
     }
+    this.escKeyWasDown = escDown;
     
     // Reset ESC state after timeout
     if (this.escPressedOnce && Date.now() - this.escPressTime >= 2000) {
