@@ -56,10 +56,11 @@ export class GameScene extends Phaser.Scene {
   private keyMute!: Phaser.Input.Keyboard.Key;
   private keyEsc!: Phaser.Input.Keyboard.Key;
   
-  // ESC menu tracking
-  private escPressedOnce: boolean = false;
-  private escPressTime: number = 0;
-  private escKeyWasDown: boolean = false;
+  // ESC menu tracking - use raw DOM listener for reliability
+  private escPressCount: number = 0;
+  private escLastPressTime: number = 0;
+  private escKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private shouldReturnToMenu: boolean = false;
 
   
   // Animation tracking
@@ -81,9 +82,37 @@ export class GameScene extends Phaser.Scene {
   
   create(): void {
     // Reset ESC state
-    this.escPressedOnce = false;
-    this.escPressTime = 0;
-    this.escKeyWasDown = false;
+    this.escPressCount = 0;
+    this.escLastPressTime = 0;
+    this.shouldReturnToMenu = false;
+    
+    // Set up raw DOM listener for ESC key (more reliable than Phaser's)
+    this.escKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        const now = Date.now();
+        
+        if (this.escPressCount === 1 && now - this.escLastPressTime < 2000) {
+          // Second press within 2 seconds - set flag to return to menu
+          this.escPressCount = 0;
+          this.shouldReturnToMenu = true; // Handle in update loop
+        } else {
+          // First press or timeout expired
+          this.escPressCount = 1;
+          this.escLastPressTime = now;
+          this.showMessage('Press ESC again to return to menu', 2000);
+        }
+      }
+    };
+    window.addEventListener('keydown', this.escKeyHandler);
+    
+    // Clean up listener when scene shuts down
+    this.events.on('shutdown', () => {
+      if (this.escKeyHandler) {
+        window.removeEventListener('keydown', this.escKeyHandler);
+        this.escKeyHandler = null;
+      }
+    });
     
     // Reset all keyboard states
     this.input.keyboard!.resetKeys();
@@ -126,21 +155,23 @@ export class GameScene extends Phaser.Scene {
     );
     this.hudBg.setDepth(50);
     
-    // Create HUD text (score, lives, etc)
-    this.hudText = this.add.text(10, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 4, '', {
+    // Create HUD text (score, lives, etc) - centered
+    this.hudText = this.add.text(CONFIG.GAME_WIDTH / 2, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 4, '', {
       fontFamily: 'monospace',
       fontSize: '13px',
       color: '#' + this.theme.hudText.toString(16).padStart(6, '0')
     });
+    this.hudText.setOrigin(0.5, 0);
     this.hudText.setDepth(51);
     
-    // Create HUD controls text (keyboard shortcuts)
-    this.hudControls = this.add.text(10, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 22, 
+    // Create HUD controls text (keyboard shortcuts) - centered
+    this.hudControls = this.add.text(CONFIG.GAME_WIDTH / 2, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 22, 
       'Z/X:Dig | +/-:Speed | P:Pause | T:Theme | C:CRT | M:Mute | R:Restart | ESC:Menu', {
       fontFamily: 'monospace',
       fontSize: '10px',
       color: '#666688'
     });
+    this.hudControls.setOrigin(0.5, 0);
     this.hudControls.setDepth(51);
     
     // Message text (centered)
@@ -399,33 +430,16 @@ export class GameScene extends Phaser.Scene {
   }
   
   update(time: number, delta: number): void {
-    // Handle ESC key - double tap to return to menu
-    // Use isDown with a manual check to avoid JustDown issues
-    const escDown = this.keyEsc.isDown;
-    if (escDown && !this.escKeyWasDown) {
-      // Key was just pressed this frame
-      const now = Date.now();
-      if (this.escPressedOnce && now - this.escPressTime < 2000) {
-        // Double tap - return to menu
-        this.escPressedOnce = false;
-        // Signal MenuScene to reset seed
-        (window as any).__RESET_SEED_ON_MENU__ = true;
-        // Stop the scene and start menu
-        this.scene.stop();
-        this.scene.start('MenuScene');
-        return;
-      } else {
-        // First tap - show hint
-        this.escPressedOnce = true;
-        this.escPressTime = now;
-        this.showMessage('Press ESC again to return to menu', 2000);
-      }
+    // Handle return to menu (set by ESC handler)
+    if (this.shouldReturnToMenu) {
+      this.shouldReturnToMenu = false;
+      this.returnToMenu();
+      return;
     }
-    this.escKeyWasDown = escDown;
     
     // Reset ESC state after timeout
-    if (this.escPressedOnce && Date.now() - this.escPressTime >= 2000) {
-      this.escPressedOnce = false;
+    if (this.escPressCount === 1 && Date.now() - this.escLastPressTime >= 2000) {
+      this.escPressCount = 0;
     }
     
     // Handle system keys
@@ -877,6 +891,24 @@ export class GameScene extends Phaser.Scene {
         }
       });
     }
+  }
+  
+  private returnToMenu(): void {
+    // Prevent multiple calls
+    if (this.shouldReturnToMenu) return;
+    this.shouldReturnToMenu = true;
+    
+    // Clean up ESC listener
+    if (this.escKeyHandler) {
+      window.removeEventListener('keydown', this.escKeyHandler);
+      this.escKeyHandler = null;
+    }
+    
+    // Signal MenuScene to reset seed
+    (window as any).__RESET_SEED_ON_MENU__ = true;
+    
+    // Just reload the page - most reliable way to get back to menu
+    window.location.href = window.location.pathname;
   }
   
   private updateHUD(): void {

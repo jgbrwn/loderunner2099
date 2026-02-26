@@ -16,7 +16,7 @@ export class MenuScene extends Phaser.Scene {
   private seedInput: string = '';
   private seedText!: Phaser.GameObjects.Text;
   private highScoreText!: Phaser.GameObjects.Text;
-  private deleteKey!: Phaser.Input.Keyboard.Key;
+  private shareNotice: Phaser.GameObjects.Text | null = null;
   
   constructor() {
     super({ key: 'MenuScene' });
@@ -33,7 +33,9 @@ export class MenuScene extends Phaser.Scene {
     }
     
     // Reset keyboard state to prevent stuck keys
-    this.input.keyboard!.resetKeys();
+    if (this.input.keyboard) {
+      this.input.keyboard.resetKeys();
+    }
     
     // Initialize sound system on first interaction
     this.input.once('pointerdown', () => getSoundManager().resume());
@@ -107,7 +109,7 @@ export class MenuScene extends Phaser.Scene {
     });
     
     // Seed input
-    const seedLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 310, 'SEED (DEL to clear):', {
+    const seedLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 310, 'SEED (ESC to clear):', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#888888'
@@ -130,8 +132,7 @@ export class MenuScene extends Phaser.Scene {
     resetSeedBtn.setOrigin(0.5);
     resetSeedBtn.setInteractive({ useHandCursor: true });
     resetSeedBtn.on('pointerdown', () => {
-      this.seedInput = '';
-      this.updateSeedDisplay();
+      this.clearSeedAndNotice();
     });
     resetSeedBtn.on('pointerover', () => resetSeedBtn.setColor('#ff8888'));
     resetSeedBtn.on('pointerout', () => resetSeedBtn.setColor('#ff4444'));
@@ -152,7 +153,6 @@ export class MenuScene extends Phaser.Scene {
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.enterKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
     const spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.deleteKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.DELETE);
     
     // Keyboard input for seed
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
@@ -164,10 +164,9 @@ export class MenuScene extends Phaser.Scene {
       } else if (event.key === 'Backspace') {
         this.seedInput = this.seedInput.slice(0, -1);
         this.updateSeedDisplay();
-      } else if (event.key === 'Delete' || event.key === 'Escape') {
-        // Clear seed instantly with DEL or ESC
-        this.seedInput = '';
-        this.updateSeedDisplay();
+      } else if (event.key === 'Escape') {
+        // Clear seed and shared notice with ESC
+        this.clearSeedAndNotice();
       }
     });
     
@@ -219,6 +218,22 @@ export class MenuScene extends Phaser.Scene {
     }
   }
   
+  private clearSeedAndNotice(): void {
+    this.seedInput = '';
+    this.updateSeedDisplay();
+    
+    // Also remove shared notice if present
+    if (this.shareNotice) {
+      this.shareNotice.destroy();
+      this.shareNotice = null;
+    }
+    
+    // Clear URL params
+    if (window.history.replaceState) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }
+  
   private startGame(): void {
     getSoundManager().playMenuConfirm();
     const seed = this.seedInput.length > 0 ? this.seedInput : generateSeedCode();
@@ -249,13 +264,13 @@ export class MenuScene extends Phaser.Scene {
     
     // If both seed and difficulty are in URL, show "shared game" notice
     if (seed && diff) {
-      const shareNotice = this.add.text(CONFIG.GAME_WIDTH / 2, 122,
+      this.shareNotice = this.add.text(CONFIG.GAME_WIDTH / 2, 122,
         `\u2192 SHARED: ${seed} [${diff.toUpperCase()}] \u2190`, {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#00ff88'
       });
-      shareNotice.setOrigin(0.5);
+      this.shareNotice.setOrigin(0.5);
     }
   }
 }
