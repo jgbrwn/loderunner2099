@@ -80,12 +80,19 @@ export class Enemy {
     this.sprite.setDepth(9);
   }
   
-  update(delta: number, gameSpeedMultiplier: number): void {
+  update(delta: number, gameSpeedMultiplier: number, playerHasMoved: boolean = true): void {
     if (this.state === EnemyState.DEAD) return;
     
     const speedMult = gameSpeedMultiplier * this.speedMultiplier;
     const moveSpeed = CONFIG.BASE_SPEED * speedMult * 0.85; // Enemies slightly slower
     const dt = delta / 1000;
+    
+    // Don't move until player makes first move (except for falling/trapped states)
+    const canAct = playerHasMoved || 
+                   this.state === EnemyState.FALLING || 
+                   this.state === EnemyState.TRAPPED ||
+                   this.state === EnemyState.CLIMBING_OUT ||
+                   this.state === EnemyState.RESPAWNING;
     
     // Handle respawning
     if (this.state === EnemyState.RESPAWNING) {
@@ -100,10 +107,23 @@ export class Enemy {
     // Handle trapped state
     if (this.state === EnemyState.TRAPPED) {
       this.trappedTimer -= delta;
-      if (this.trappedTimer <= 0) {
-        // Try to climb out
-        this.state = EnemyState.CLIMBING_OUT;
+      
+      // Convert frames to ms for threshold checks
+      const escapeThresholdMs = (CONFIG.ENEMY_ESCAPE_THRESHOLD || 10) * (1000 / 60);
+      const shakeThresholdMs = (CONFIG.ENEMY_SHAKE_THRESHOLD || 20) * (1000 / 60);
+      
+      // Shake effect when close to escaping
+      if (this.trappedTimer < shakeThresholdMs && this.trappedTimer > 0) {
+        const shakeAmount = 2 * Math.sin(Date.now() / 30);
+        this.sprite.x += shakeAmount;
       }
+      
+      // Enemy escapes before hole fills (like C64)
+      if (this.trappedTimer <= escapeThresholdMs) {
+        this.state = EnemyState.CLIMBING_OUT;
+        this.moveProgress = 0;
+      }
+      
       this.updateSpritePosition();
       return;
     }
@@ -112,7 +132,10 @@ export class Enemy {
     const currentTile = this.tileMap.getTile(this.gridX, this.gridY);
     if (currentTile === TileType.HOLE && this.state !== EnemyState.FALLING) {
       this.state = EnemyState.TRAPPED;
-      this.trappedTimer = CONFIG.HOLE_DURATION * (1000 / 60) * 0.7; // Slightly less than hole duration
+      // Use C64-style timing: enemy trapped time is LESS than hole duration
+      // so enemies can escape before the hole fills
+      const enemyHoleFrames = CONFIG.ENEMY_IN_HOLE_TIME || 100;
+      this.trappedTimer = enemyHoleFrames * (1000 / 60); // Convert frames to ms
       
       // Drop gold if carrying
       if (this.hasGold) {
@@ -152,6 +175,12 @@ export class Enemy {
           this.targetY = this.gridY;
         }
       }
+      this.updateSpritePosition();
+      return;
+    }
+    
+    // Don't chase until player has moved
+    if (!canAct) {
       this.updateSpritePosition();
       return;
     }
@@ -443,7 +472,8 @@ export class Enemy {
   
   trapInHole(): void {
     this.state = EnemyState.TRAPPED;
-    this.trappedTimer = CONFIG.HOLE_DURATION * (1000 / 60) * 0.7;
+    const enemyHoleFrames = CONFIG.ENEMY_IN_HOLE_TIME || 100;
+    this.trappedTimer = enemyHoleFrames * (1000 / 60);
     if (this.hasGold) {
       this.dropGold();
     }

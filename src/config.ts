@@ -21,9 +21,14 @@ export const CONFIG = {
   SPEED_MULTIPLIERS: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
   DEFAULT_SPEED_INDEX: 2,
   
-  // Timing
-  HOLE_DURATION: 600, // frames until hole refills (~10 seconds at 60fps)
-  HOLE_WARNING: 120,  // frames before refill to show warning
+  // Timing (based on C64 original: $b4 = 180 frames for hole)
+  HOLE_DURATION: 180, // frames until hole refills (~3 seconds at 60fps, matches C64)
+  HOLE_WARNING: 30,   // frames before refill to show warning (~0.5 sec)
+  
+  // Enemy escape timing (C64: enemy escapes when their timer < 7, starts shaking at < 13)
+  ENEMY_IN_HOLE_TIME: 100,      // frames enemy stays trapped (less than hole duration!)
+  ENEMY_SHAKE_THRESHOLD: 20,    // frames left when enemy starts shaking
+  ENEMY_ESCAPE_THRESHOLD: 10,   // frames left when enemy climbs out
   DIG_DURATION: 12,   // frames to dig
   
   // Enemies

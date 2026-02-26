@@ -67,6 +67,10 @@ export class GameScene extends Phaser.Scene {
   private lastStepTime: number = 0;
   private stepInterval: number = 150;
   
+  // Game flow flags
+  private playerHasMoved: boolean = false;
+  private levelCompleting: boolean = false;
+  
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -220,6 +224,10 @@ export class GameScene extends Phaser.Scene {
   }
   
   private generateLevel(): void {
+    // Reset flow flags
+    this.playerHasMoved = false;
+    this.levelCompleting = false;
+    
     // Clear previous
     this.clearLevel();
     
@@ -227,6 +235,10 @@ export class GameScene extends Phaser.Scene {
     const seed = `${this.seedCode}-L${this.level}`;
     const generator = new LevelGenerator(seed, this.difficulty, this.level);
     this.tileMap = generator.generate();
+    
+    // Apply difficulty's hole duration multiplier
+    const difficultySettings = DIFFICULTIES[this.difficulty];
+    this.tileMap.holeDurationMultiplier = difficultySettings?.holeTime || 1.0;
     
     // Render tiles
     this.renderTiles();
@@ -495,7 +507,21 @@ export class GameScene extends Phaser.Scene {
     
     // Update player
     const prevState = this.player.state;
+    const prevX = this.player.gridX;
+    const prevY = this.player.gridY;
     this.player.update(delta, input.cursors, input.digKeys, speedMult);
+    
+    // Track if player has made their first move (enemies wait until then)
+    if (!this.playerHasMoved) {
+      const hasMoved = this.player.gridX !== prevX || 
+                       this.player.gridY !== prevY ||
+                       this.player.state === PlayerState.WALKING ||
+                       this.player.state === PlayerState.CLIMBING ||
+                       this.player.state === PlayerState.DIGGING;
+      if (hasMoved) {
+        this.playerHasMoved = true;
+      }
+    }
     
     // Play step sounds
     if (this.player.state === PlayerState.WALKING && time - this.lastStepTime > this.stepInterval / speedMult) {
@@ -514,10 +540,10 @@ export class GameScene extends Phaser.Scene {
       getSoundManager().playDig();
     }
     
-    // Update enemies
+    // Update enemies (only move if player has started moving)
     for (const enemy of this.enemies) {
       const prevEnemyState = enemy.state;
-      enemy.update(delta, speedMult);
+      enemy.update(delta, speedMult, this.playerHasMoved);
       
       // Check if enemy just got trapped
       if (prevEnemyState !== EnemyState.TRAPPED && enemy.state === EnemyState.TRAPPED) {
@@ -829,10 +855,14 @@ export class GameScene extends Phaser.Scene {
   }
   
   private checkWinCondition(): void {
+    // Prevent multiple calls
+    if (this.levelCompleting) return;
+    
     // Player must be at top row on exit ladder
     if (this.player.gridY === 0) {
       const tile = this.tileMap.getTile(this.player.gridX, 0);
       if (tile === TileType.LADDER_EXIT || tile === TileType.LADDER) {
+        this.levelCompleting = true;
         this.winLevel();
       }
     }

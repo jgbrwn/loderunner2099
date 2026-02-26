@@ -16,6 +16,7 @@ export class TileMap {
   public enemyStarts: { x: number; y: number }[] = [];
   public goldPositions: { x: number; y: number }[] = [];
   public exitLadders: { x: number; y: number }[] = [];
+  public holeDurationMultiplier: number = 1.0; // Set by difficulty
   
   constructor(width = CONFIG.GRID_WIDTH, height = CONFIG.GRID_HEIGHT) {
     this.width = width;
@@ -91,9 +92,11 @@ export class TileMap {
     
     const originalTile = this.getTile(x, y);
     this.setTile(x, y, TileType.HOLE);
+    // Apply difficulty multiplier to hole duration
+    const duration = Math.floor(CONFIG.HOLE_DURATION * this.holeDurationMultiplier);
     this.holes.push({
       x, y,
-      timer: CONFIG.HOLE_DURATION,
+      timer: duration,
       originalTile
     });
     return true;
