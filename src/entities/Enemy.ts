@@ -297,6 +297,15 @@ export class Enemy {
     if (tile === TileType.GOLD) {
       this.hasGold = true;
       this.tileMap.setTile(this.gridX, this.gridY, TileType.EMPTY);
+      // Remove from gold positions (will be re-added when dropped or enemy killed)
+      const idx = this.tileMap.goldPositions.findIndex(
+        g => g.x === this.gridX && g.y === this.gridY
+      );
+      if (idx !== -1) {
+        this.tileMap.goldPositions.splice(idx, 1);
+      }
+      // Emit event to remove gold sprite
+      this.scene.events.emit('goldPickedUpByEnemy', { x: this.gridX, y: this.gridY });
     }
   }
   
@@ -307,6 +316,8 @@ export class Enemy {
     // Drop gold at current position
     this.tileMap.setTile(this.gridX, this.gridY, TileType.GOLD);
     this.tileMap.goldPositions.push({ x: this.gridX, y: this.gridY });
+    // Emit event to create gold sprite
+    this.scene.events.emit('goldDropped', { x: this.gridX, y: this.gridY });
   }
   
   private checkPlayerCollision(): void {

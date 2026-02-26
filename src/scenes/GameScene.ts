@@ -156,6 +156,8 @@ export class GameScene extends Phaser.Scene {
     
     // Set up events
     this.events.on('goldCollected', this.onGoldCollected, this);
+    this.events.on('goldPickedUpByEnemy', this.onGoldPickedUpByEnemy, this);
+    this.events.on('goldDropped', this.onGoldDropped, this);
     this.events.on('playerDied', this.onPlayerDied, this);
     this.events.on('enemyTrapped', this.onEnemyTrapped, this);
     this.events.on('holeDug', this.onHoleDug, this);
@@ -601,6 +603,14 @@ export class GameScene extends Phaser.Scene {
     getSoundManager().playGold();
     this.updateTileSprite(data.x, data.y);
     
+    // Remove gold sprite
+    const goldKey = `${data.x},${data.y}`;
+    const goldSprite = this.goldSprites.get(goldKey);
+    if (goldSprite) {
+      goldSprite.destroy();
+      this.goldSprites.delete(goldKey);
+    }
+    
     // Show exit ladders when all gold collected
     if (this.tileMap.goldPositions.length === 0) {
       getSoundManager().playExitAppear();
@@ -610,6 +620,23 @@ export class GameScene extends Phaser.Scene {
       }
       this.showMessage('EXIT AT TOP!', 2000);
     }
+  }
+  
+  private onGoldPickedUpByEnemy(data: { x: number; y: number }): void {
+    // Remove gold sprite when enemy picks it up
+    const goldKey = `${data.x},${data.y}`;
+    const goldSprite = this.goldSprites.get(goldKey);
+    if (goldSprite) {
+      goldSprite.destroy();
+      this.goldSprites.delete(goldKey);
+    }
+    this.updateHUD();
+  }
+  
+  private onGoldDropped(data: { x: number; y: number }): void {
+    // Create gold sprite when enemy drops gold
+    this.createGoldSprite(data.x, data.y);
+    this.updateHUD();
   }
   
   private checkWinCondition(): void {
