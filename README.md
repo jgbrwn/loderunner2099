@@ -1,6 +1,6 @@
 # Lode Runner 2099
 
-[![Play Now](https://img.shields.io/badge/Play%20Now-Live%20Demo-00ff88?style=for-the-badge)](https://loderunner2099.exe.xyz:8000/)
+[![Play Now](https://img.shields.io/badge/Play%20Now-Live%20Demo-00ff88?style=for-the-badge)](https://loderunner2099.exe.xyz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 A modern web-based reimagining of the classic Lode Runner game with procedural level generation, multiple themes, and shareable seeds.
@@ -43,7 +43,7 @@ Collect all the gold on each level, then climb to the top to escape. Avoid or tr
 
 ### Play Online
 
-Visit **[loderunner2099.exe.xyz:8000](https://loderunner2099.exe.xyz:8000/)** to play instantly!
+Visit **[loderunner2099.exe.xyz](https://loderunner2099.exe.xyz/)** to play instantly!
 
 ### Local Development
 
@@ -131,7 +131,7 @@ loderunner2099/
 Share a specific level by copying the URL with seed and difficulty parameters:
 
 ```
-https://loderunner2099.exe.xyz:8000/?seed=CYBER1&diff=normal
+https://loderunner2099.exe.xyz/?seed=CYBER1&diff=normal
 ```
 
 Or type a seed code directly in the menu and share it with friends!
