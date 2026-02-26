@@ -252,6 +252,9 @@ export class Player {
     this.digX = digX;
     this.digY = digY;
     
+    // Emit event to start dig animation
+    this.scene.events.emit('digStart', { x: digX, y: digY, duration: this.digTimer });
+    
     return true;
   }
   

@@ -59,7 +59,7 @@ export class GameScene extends Phaser.Scene {
   // ESC menu tracking
   private escPressedOnce: boolean = false;
   private escPressTime: number = 0;
-  private escWasDown: boolean = false;
+
   
   // Animation tracking
   private lastStepTime: number = 0;
@@ -79,6 +79,10 @@ export class GameScene extends Phaser.Scene {
   }
   
   create(): void {
+    // Reset ESC state
+    this.escPressedOnce = false;
+    this.escPressTime = 0;
+    
     // Initialize sound
     getSoundManager().resume();
     
@@ -160,6 +164,7 @@ export class GameScene extends Phaser.Scene {
     this.events.on('goldDropped', this.onGoldDropped, this);
     this.events.on('playerDied', this.onPlayerDied, this);
     this.events.on('enemyTrapped', this.onEnemyTrapped, this);
+    this.events.on('digStart', this.onDigStart, this);
     this.events.on('holeDug', this.onHoleDug, this);
     
     // Camera setup
@@ -390,14 +395,12 @@ export class GameScene extends Phaser.Scene {
   
   update(time: number, delta: number): void {
     // Handle ESC key - double tap to return to menu
-    const escDown = this.keyEsc.isDown;
-    if (escDown && !this.escWasDown) {
-      // ESC just pressed
+    if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
       const now = Date.now();
       if (this.escPressedOnce && now - this.escPressTime < 2000) {
         // Double tap - return to menu
         this.escPressedOnce = false;
-        this.escWasDown = escDown;
+        this.input.keyboard!.resetKeys();
         this.scene.start('MenuScene');
         return;
       } else {
@@ -407,7 +410,6 @@ export class GameScene extends Phaser.Scene {
         this.showMessage('Press ESC again to return to menu', 2000);
       }
     }
-    this.escWasDown = escDown;
     
     // Reset ESC state after timeout
     if (this.escPressedOnce && Date.now() - this.escPressTime >= 2000) {
@@ -591,6 +593,103 @@ export class GameScene extends Phaser.Scene {
   private onEnemyTrapped(_enemy: Enemy): void {
     getSoundManager().playEnemyTrapped();
     this.score += 50; // Bonus for trapping enemy
+  }
+  
+  private onDigStart(data: { x: number; y: number; duration: number }): void {
+    // Create drilling animation on the brick being dug
+    const px = data.x * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+    const py = data.y * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+    
+    // Create crack/drilling effect overlay
+    const crackOverlay = this.add.graphics();
+    crackOverlay.setDepth(15);
+    
+    // Animate the drilling with expanding cracks
+    const duration = data.duration;
+    let elapsed = 0;
+    
+    const updateCracks = () => {
+      elapsed += 16; // ~60fps
+      const progress = Math.min(elapsed / duration, 1);
+      
+      crackOverlay.clear();
+      
+      // Draw expanding cracks based on progress
+      const crackColor = 0x000000;
+      const sparkColor = 0xffff00;
+      
+      crackOverlay.lineStyle(2, crackColor, 0.8);
+      
+      // Center point of the brick
+      const cx = px;
+      const cy = py;
+      const maxRadius = CONFIG.TILE_SIZE / 2;
+      const currentRadius = maxRadius * progress;
+      
+      // Draw cracks radiating from center
+      const numCracks = 6;
+      for (let i = 0; i < numCracks; i++) {
+        const angle = (i / numCracks) * Math.PI * 2 + progress * 0.5;
+        const length = currentRadius * (0.6 + Math.random() * 0.4);
+        crackOverlay.beginPath();
+        crackOverlay.moveTo(cx, cy);
+        crackOverlay.lineTo(
+          cx + Math.cos(angle) * length,
+          cy + Math.sin(angle) * length
+        );
+        crackOverlay.strokePath();
+      }
+      
+      // Add debris particles flying out
+      if (progress > 0.2) {
+        crackOverlay.fillStyle(this.theme.brick, 0.8);
+        const numDebris = Math.floor(progress * 8);
+        for (let i = 0; i < numDebris; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = currentRadius * 0.5 + Math.random() * currentRadius * 0.5;
+          const size = 2 + Math.random() * 2;
+          crackOverlay.fillRect(
+            cx + Math.cos(angle) * dist - size / 2,
+            cy + Math.sin(angle) * dist - size / 2,
+            size, size
+          );
+        }
+      }
+      
+      // Add sparks
+      if (Math.random() > 0.5) {
+        crackOverlay.fillStyle(sparkColor, 0.9);
+        const sparkAngle = Math.random() * Math.PI * 2;
+        const sparkDist = currentRadius * 0.3 + Math.random() * currentRadius * 0.3;
+        crackOverlay.fillRect(
+          cx + Math.cos(sparkAngle) * sparkDist - 1,
+          cy + Math.sin(sparkAngle) * sparkDist - 1,
+          2, 2
+        );
+      }
+      
+      // Shake the brick slightly
+      const tileSprite = this.tileSprites[data.y]?.[data.x];
+      if (tileSprite && progress < 1) {
+        const shake = (1 - progress) * 2;
+        tileSprite.x = px + (Math.random() - 0.5) * shake;
+        tileSprite.y = py + (Math.random() - 0.5) * shake;
+      }
+      
+      if (progress < 1) {
+        this.time.delayedCall(16, updateCracks);
+      } else {
+        // Reset brick position and destroy overlay
+        const tileSprite = this.tileSprites[data.y]?.[data.x];
+        if (tileSprite) {
+          tileSprite.x = px;
+          tileSprite.y = py;
+        }
+        crackOverlay.destroy();
+      }
+    };
+    
+    updateCracks();
   }
   
   private onHoleDug(data: { x: number; y: number }): void {
