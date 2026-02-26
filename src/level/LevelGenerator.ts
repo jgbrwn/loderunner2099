@@ -175,9 +175,20 @@ export class LevelGenerator {
   
   private extendLadderDown(map: TileMap, x: number, fromRow: number): void {
     // Extend ladder downward to next solid surface
-    for (let y = fromRow + 1; y < map.height; y++) {
+    // The ladder should reach the platform surface (so player can step off)
+    for (let y = fromRow; y < map.height; y++) {
       const tile = map.getTile(x, y);
-      if (tile === TileType.BRICK || tile === TileType.BRICK_HARD) {
+      // Stop when we hit a hard brick or the bottom
+      if (tile === TileType.BRICK_HARD) {
+        break;
+      }
+      // If this is a regular brick, replace it with ladder (creating access point)
+      // but stop - don't go below solid ground
+      if (tile === TileType.BRICK || tile === TileType.BRICK_TRAP) {
+        // Don't dig into the ground floor
+        if (y < map.height - 1) {
+          map.setTile(x, y, TileType.LADDER);
+        }
         break;
       }
       map.setTile(x, y, TileType.LADDER);
@@ -202,28 +213,118 @@ export class LevelGenerator {
   }
   
   private createPoles(map: TileMap): void {
-    // Add horizontal poles to cross gaps
-    for (let y = 2; y < map.height - 3; y++) {
-      if (!this.rng.chance(0.2)) continue;
-      
-      // Find gaps
-      let gapStart = -1;
-      for (let x = 0; x < map.width; x++) {
+    // Add horizontal poles strategically to connect platforms
+    // Poles should bridge gaps between platforms at the same height
+    
+    // Find all platform endpoints (edges where you could fall off)
+    const platformEdges: { x: number; y: number; side: 'left' | 'right' }[] = [];
+    
+    for (let y = 1; y < map.height - 2; y++) {
+      for (let x = 1; x < map.width - 1; x++) {
         const tile = map.getTile(x, y);
-        const below = map.getTile(x, y + 1);
+        const above = map.getTile(x, y - 1);
         
-        if (tile === TileType.EMPTY && below === TileType.EMPTY) {
-          if (gapStart < 0) gapStart = x;
-        } else {
-          if (gapStart >= 0) {
-            const gapLen = x - gapStart;
-            if (gapLen >= 3 && gapLen <= 10 && this.rng.chance(0.5)) {
-              for (let px = gapStart; px < x; px++) {
-                map.setTile(px, y, TileType.POLE);
+        // This is a platform surface (brick with empty above)
+        if ((tile === TileType.BRICK || tile === TileType.BRICK_HARD || tile === TileType.LADDER) && 
+            (above === TileType.EMPTY || above === TileType.GOLD)) {
+          // Check if left edge
+          const leftTile = map.getTile(x - 1, y);
+          if (leftTile === TileType.EMPTY || leftTile === TileType.POLE) {
+            platformEdges.push({ x, y: y - 1, side: 'left' });
+          }
+          // Check if right edge
+          const rightTile = map.getTile(x + 1, y);
+          if (rightTile === TileType.EMPTY || rightTile === TileType.POLE) {
+            platformEdges.push({ x, y: y - 1, side: 'right' });
+          }
+        }
+      }
+    }
+    
+    // Try to connect platform edges with poles
+    const usedEdges = new Set<string>();
+    
+    for (const edge of platformEdges) {
+      const edgeKey = `${edge.x},${edge.y},${edge.side}`;
+      if (usedEdges.has(edgeKey)) continue;
+      
+      // Look for a matching edge on the same row
+      const matchingEdges = platformEdges.filter(e => 
+        e.y === edge.y && 
+        e !== edge &&
+        !usedEdges.has(`${e.x},${e.y},${e.side}`)
+      );
+      
+      for (const match of matchingEdges) {
+        // Calculate gap
+        const startX = Math.min(edge.x, match.x);
+        const endX = Math.max(edge.x, match.x);
+        const gapLen = endX - startX;
+        
+        // Only connect reasonable gaps (3-12 tiles)
+        if (gapLen < 3 || gapLen > 12) continue;
+        
+        // Verify the path is clear
+        let pathClear = true;
+        for (let px = startX; px <= endX; px++) {
+          const t = map.getTile(px, edge.y);
+          if (t !== TileType.EMPTY && t !== TileType.POLE && t !== TileType.GOLD) {
+            pathClear = false;
+            break;
+          }
+        }
+        
+        if (pathClear && this.rng.chance(0.6)) {
+          // Create the pole bridge
+          for (let px = startX; px <= endX; px++) {
+            // Preserve gold if present
+            if (map.getTile(px, edge.y) !== TileType.GOLD) {
+              map.setTile(px, edge.y, TileType.POLE);
+            }
+          }
+          usedEdges.add(edgeKey);
+          usedEdges.add(`${match.x},${match.y},${match.side}`);
+          break;
+        }
+      }
+    }
+    
+    // Add a few extra poles where they connect ladders to platforms
+    for (let y = 2; y < map.height - 3; y++) {
+      for (let x = 2; x < map.width - 2; x++) {
+        // If there's a ladder with empty space to the side
+        if (map.getTile(x, y) === TileType.LADDER) {
+          // Check left side
+          if (map.getTile(x - 1, y) === TileType.EMPTY && this.rng.chance(0.3)) {
+            // Extend pole left until we hit something
+            for (let px = x - 1; px >= 0; px--) {
+              const t = map.getTile(px, y);
+              if (t !== TileType.EMPTY) break;
+              // Check if there's a platform below to land on
+              const below = map.getTile(px, y + 1);
+              if (below === TileType.BRICK || below === TileType.LADDER || below === TileType.BRICK_HARD) {
+                // Good endpoint - create pole from here to ladder
+                for (let fillX = px; fillX < x; fillX++) {
+                  map.setTile(fillX, y, TileType.POLE);
+                }
+                break;
               }
             }
           }
-          gapStart = -1;
+          // Check right side
+          if (map.getTile(x + 1, y) === TileType.EMPTY && this.rng.chance(0.3)) {
+            for (let px = x + 1; px < map.width; px++) {
+              const t = map.getTile(px, y);
+              if (t !== TileType.EMPTY) break;
+              const below = map.getTile(px, y + 1);
+              if (below === TileType.BRICK || below === TileType.LADDER || below === TileType.BRICK_HARD) {
+                for (let fillX = x + 1; fillX <= px; fillX++) {
+                  map.setTile(fillX, y, TileType.POLE);
+                }
+                break;
+              }
+            }
+          }
         }
       }
     }

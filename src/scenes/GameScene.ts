@@ -141,6 +141,7 @@ export class GameScene extends Phaser.Scene {
     this.events.on('goldCollected', this.onGoldCollected, this);
     this.events.on('playerDied', this.onPlayerDied, this);
     this.events.on('enemyTrapped', this.onEnemyTrapped, this);
+    this.events.on('holeDug', this.onHoleDug, this);
     
     // Camera setup
     this.cameras.main.setBackgroundColor(this.theme.background);
@@ -525,6 +526,11 @@ export class GameScene extends Phaser.Scene {
     this.score += 50; // Bonus for trapping enemy
   }
   
+  private onHoleDug(data: { x: number; y: number }): void {
+    // Update the tile sprite to show the hole
+    this.updateTileSprite(data.x, data.y);
+  }
+  
   private onGoldCollected(data: { x: number; y: number }): void {
     this.score += 100;
     getSoundManager().playGold();
@@ -552,10 +558,21 @@ export class GameScene extends Phaser.Scene {
   }
   
   private winLevel(): void {
-    this.score += 500 + this.level * 100; // Level bonus increases with level
+    const levelBonus = 500 + this.level * 100;
+    this.score += levelBonus; // Level bonus increases with level
+    
+    // Gain a life every level (capped at starting lives + 5)
+    const maxLives = (DIFFICULTIES[this.difficulty]?.lives || 5) + 5;
+    const gainedLife = this.lives < maxLives;
+    if (gainedLife) {
+      this.lives++;
+    }
+    
     this.level++;
     getSoundManager().playLevelComplete();
-    this.showMessage(`LEVEL ${this.level - 1} COMPLETE!\n\n+${500 + (this.level - 1) * 100} BONUS`, 2000);
+    
+    const lifeMsg = gainedLife ? '\n+1 LIFE!' : '';
+    this.showMessage(`LEVEL ${this.level - 1} COMPLETE!\n\n+${levelBonus} BONUS${lifeMsg}`, 2000);
     
     this.time.delayedCall(2000, () => {
       this.generateLevel();

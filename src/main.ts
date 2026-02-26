@@ -18,7 +18,8 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [BootScene, MenuScene, GameScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+(window as any).__GAME__ = game;
 
 console.log('%c LODE RUNNER 2099 ', 'background: #0a0a1a; color: #00ffff; font-size: 20px; font-weight: bold;');
 console.log('%c Procedural retro gaming ', 'color: #ff00ff');

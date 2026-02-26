@@ -65,6 +65,7 @@ export class Player {
       if (this.digTimer <= 0) {
         // Complete the dig
         this.tileMap.digHole(this.digX, this.digY);
+        this.scene.events.emit('holeDug', { x: this.digX, y: this.digY });
         this.state = PlayerState.IDLE;
       }
       return;

@@ -51,20 +51,20 @@ export class MenuScene extends Phaser.Scene {
       repeat: -1
     });
     
-    // High score display
+    // High score display - positioned carefully to not overlap with share notice
     const topScore = getHighScores().getTopScore();
+    this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 395, '', {
+      fontFamily: 'monospace',
+      fontSize: '12px',
+      color: '#ffff00'
+    });
+    this.highScoreText.setOrigin(0.5);
     if (topScore) {
-      this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 130, 
-        `HIGH SCORE: ${topScore.score} by ${topScore.name}`, {
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#ffff00'
-      });
-      this.highScoreText.setOrigin(0.5);
+      this.highScoreText.setText(`HIGH: ${topScore.score} (${topScore.name} L${topScore.level})`);
     }
     
     // Difficulty selection
-    const diffLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 160, 'SELECT DIFFICULTY', {
+    const diffLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 150, 'SELECT DIFFICULTY', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffffff'
@@ -75,7 +75,7 @@ export class MenuScene extends Phaser.Scene {
     const colors = ['#00ff00', '#00ffff', '#ffaa00', '#ff0044'];
     
     difficulties.forEach((diff, i) => {
-      const y = 195 + i * 32;
+      const y = 180 + i * 30;
       const text = this.add.text(CONFIG.GAME_WIDTH / 2, y, diff, {
         fontFamily: 'monospace',
         fontSize: '22px',
@@ -94,14 +94,14 @@ export class MenuScene extends Phaser.Scene {
     });
     
     // Seed input
-    const seedLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 335, 'SEED (optional):', {
+    const seedLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 310, 'SEED (optional):', {
       fontFamily: 'monospace',
       fontSize: '12px',
       color: '#888888'
     });
     seedLabel.setOrigin(0.5);
     
-    this.seedText = this.add.text(CONFIG.GAME_WIDTH / 2, 355, '[ RANDOM ]', {
+    this.seedText = this.add.text(CONFIG.GAME_WIDTH / 2, 330, '[ RANDOM ]', {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ffff00'
@@ -109,9 +109,9 @@ export class MenuScene extends Phaser.Scene {
     this.seedText.setOrigin(0.5);
     
     // Instructions
-    const instructions = this.add.text(CONFIG.GAME_WIDTH / 2, 410, 
-      'CONTROLS: Arrow Keys - Move | Z/X - Dig\n' +
-      '+/- Speed | P Pause | T Theme | C CRT | M Mute\n\n' +
+    const instructions = this.add.text(CONFIG.GAME_WIDTH / 2, 375, 
+      'Arrow Keys: Move | Z/X: Dig | +/-: Speed\n' +
+      'P: Pause | T: Theme | C: CRT | M: Mute\n\n' +
       'Press ENTER or tap to start', {
       fontFamily: 'monospace',
       fontSize: '11px',
@@ -216,10 +216,10 @@ export class MenuScene extends Phaser.Scene {
     
     // If both seed and difficulty are in URL, show "shared game" notice
     if (seed && diff) {
-      const shareNotice = this.add.text(CONFIG.GAME_WIDTH / 2, 125,
-        `\u2192 SHARED GAME: ${seed} [${diff.toUpperCase()}] \u2190`, {
+      const shareNotice = this.add.text(CONFIG.GAME_WIDTH / 2, 122,
+        `\u2192 SHARED: ${seed} [${diff.toUpperCase()}] \u2190`, {
         fontFamily: 'monospace',
-        fontSize: '14px',
+        fontSize: '12px',
         color: '#00ff88'
       });
       shareNotice.setOrigin(0.5);
