@@ -261,7 +261,7 @@ loderunner2099/
 
 ## 🚀 Development Phases
 
-### Phase 1: Foundation (MVP)
+### Phase 1: Foundation (MVP) ✅ COMPLETE
 1. ✅ Project setup (Vite + Phaser + TypeScript)
 2. ✅ Basic tile rendering
 3. ✅ Player movement (walk, climb, fall)
@@ -270,27 +270,38 @@ loderunner2099/
 6. ✅ Gold collection
 7. ✅ Win/lose conditions
 
-### Phase 2: Procedural Generation
+### Phase 2: Procedural Generation ✅ COMPLETE
 1. ✅ Level generator skeleton
 2. ✅ Platform/ladder placement algorithms
 3. ✅ Gold placement with reachability check
-4. ✅ Solvability verification
-5. ✅ Difficulty tiers implementation
+4. ✅ Solvability verification (BFS-based)
+5. ✅ Difficulty tiers implementation (4 levels)
 6. ✅ Seeded random for reproducibility
 
-### Phase 3: Polish & Enemies
+### Phase 3: Polish & Enemies ✅ COMPLETE
 1. ✅ Enemy AI (pathfinding, hole trapping)
 2. ✅ Enemy respawn mechanics
-3. ✅ Speed controls
-4. ✅ Sound effects
-5. ✅ Visual themes
+3. ✅ Speed controls (+/- keys, 6 speeds)
+4. ✅ Sound effects (Web Audio procedural)
+5. ✅ Visual themes (5 themes: Cyber, Matrix, Sunset, Neon, Classic)
+6. ✅ Pixel art sprites with animation frames
+7. ✅ CRT scanline overlay effect
 
-### Phase 4: Production Ready
-1. ✅ Menu system
-2. ✅ Persistent settings (localStorage)
-3. ✅ Mobile touch controls (bonus)
-4. ✅ Performance optimization
-5. ✅ PWA support (offline play)
+### Phase 4: Production Ready ✅ COMPLETE
+1. ✅ Menu system (difficulty selection, seed input)
+2. ✅ High scores (localStorage persistence)
+3. ✅ Mobile touch controls (virtual d-pad + dig buttons)
+4. ✅ Theme switching (T key)
+5. ⬜ PWA support (offline play) - TODO
+6. ⬜ Performance optimization - ongoing
+
+### Phase 5: Future Enhancements
+1. ⬜ Improved procedural generation variety
+2. ⬜ Level editor
+3. ⬜ Online leaderboards
+4. ⬜ More animations (climbing, hanging detail)
+5. ⬜ Music/ambient audio
+6. ⬜ Achievement system
 
 ---
 
