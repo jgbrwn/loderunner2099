@@ -59,6 +59,11 @@ export class Player {
   update(delta: number, cursors: Phaser.Types.Input.Keyboard.CursorKeys, digKeys: { left: Phaser.Input.Keyboard.Key & { _justDown?: boolean }, right: Phaser.Input.Keyboard.Key & { _justDown?: boolean } }, speedMultiplier: number): void {
     if (this.state === PlayerState.DEAD) return;
     
+    // Always check for gold at current position (defensive - catches edge cases)
+    if (this.moveProgress === 0) {
+      this.checkGoldCollection();
+    }
+    
     const moveSpeed = CONFIG.BASE_SPEED * speedMultiplier;
     const dt = delta / 1000;
     
