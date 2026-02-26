@@ -87,6 +87,9 @@ export class Player {
         this.gridY = this.targetY;
         this.targetY++;
         
+        // Check for gold while falling through
+        this.checkGoldCollection();
+        
         // Check if we've landed
         if (!this.shouldFall()) {
           this.state = PlayerState.IDLE;

@@ -509,9 +509,22 @@ export class LevelGenerator {
     }
     
     this.rng.shuffle(validSpots);
-    const enemySpots = validSpots.slice(0, Math.min(enemyCount, validSpots.length));
     
-    for (const spot of enemySpots) {
+    // Place enemies ensuring no duplicates and minimum spacing
+    const placedPositions: Set<string> = new Set();
+    for (const spot of validSpots) {
+      if (map.enemyStarts.length >= enemyCount) break;
+      
+      const key = `${spot.x},${spot.y}`;
+      if (placedPositions.has(key)) continue;
+      
+      // Ensure minimum spacing from other enemies (at least 3 tiles apart)
+      const tooClose = map.enemyStarts.some(e => 
+        Math.abs(e.x - spot.x) + Math.abs(e.y - spot.y) < 3
+      );
+      if (tooClose) continue;
+      
+      placedPositions.add(key);
       map.enemyStarts.push(spot);
     }
   }
