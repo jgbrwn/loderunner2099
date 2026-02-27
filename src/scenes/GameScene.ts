@@ -1052,7 +1052,7 @@ export class GameScene extends Phaser.Scene {
     const diffName = DIFFICULTIES[this.difficulty]?.name || 'NORMAL';
     const goldRemaining = this.tileMap?.goldPositions?.length ?? 0;
     const sound = getSoundManager();
-    const musicIcon = sound.isMusicEnabled() ? '♪' : '♪̶';  // Music note (struck through if off)
+    const musicIcon = sound.isMusicEnabled() ? '♪' : '♪x';  // Music note, or crossed out if off
     
     this.hudText.setText(
       `SCORE: ${this.score.toString().padStart(6, '0')}  ` +
