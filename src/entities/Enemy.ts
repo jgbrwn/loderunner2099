@@ -367,27 +367,26 @@ export class Enemy {
       
       const tile = this.tileMap.getTile(x, y);
       
-      // Must be empty, pole, or ladder
-      const isSafeTile = tile === TileType.EMPTY || 
-                         tile === TileType.POLE || 
-                         tile === TileType.LADDER || 
-                         tile === TileType.LADDER_EXIT;
+      // Gold can ONLY be placed in empty space or on a pole
+      // Per C64 original: if the space above an enemy is not empty, the gold is LOST
+      // We're being slightly more lenient by allowing poles, but NOT ladders
+      const isSafeTile = tile === TileType.EMPTY || tile === TileType.POLE;
       if (!isSafeTile) return false;
       
       // Check no existing gold at this position
       const hasGold = this.tileMap.goldPositions.some(g => g.x === x && g.y === y);
       if (hasGold) return false;
       
-      // Must have support below (unless on ladder or at bottom)
+      // Must have support below
       if (y >= this.tileMap.height - 1) return true; // Bottom row
-      if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT) return true;
       
       const below = this.tileMap.getTile(x, y + 1);
       const hasSupport = below === TileType.BRICK || 
                          below === TileType.BRICK_HARD || 
                          below === TileType.LADDER || 
                          below === TileType.LADDER_EXIT ||
-                         below === TileType.BRICK_TRAP;
+                         below === TileType.BRICK_TRAP ||
+                         below === TileType.POLE; // Can rest on pole too
       return hasSupport;
     };
     
@@ -468,17 +467,23 @@ export class Enemy {
   private checkPlayerCollision(): void {
     if (this.state === EnemyState.TRAPPED || this.state === EnemyState.RESPAWNING) return;
     
-    // Check if overlapping with player
-    const dist = Math.abs(this.gridX - this.player.gridX) + Math.abs(this.gridY - this.player.gridY);
-    if (dist === 0) {
-      this.player.die();
-    }
+    // Use pixel-based collision for smooth and fair hit detection
+    // This accounts for visual positions, not just grid positions
+    const enemyX = this.sprite.x;
+    const enemyY = this.sprite.y;
+    const playerX = this.player.sprite.x;
+    const playerY = this.player.sprite.y;
     
-    // Also check if moving through each other
-    if (this.moveProgress > 0.3 && this.moveProgress < 0.7) {
-      if (this.targetX === this.player.gridX && this.targetY === this.player.gridY) {
-        this.player.die();
-      }
+    // Calculate pixel distance
+    const dx = Math.abs(enemyX - playerX);
+    const dy = Math.abs(enemyY - playerY);
+    
+    // Collision threshold - slightly smaller than tile size for fairness
+    // This means you need to actually overlap visually, not just be in the same grid cell
+    const collisionThreshold = CONFIG.TILE_SIZE * 0.6;
+    
+    if (dx < collisionThreshold && dy < collisionThreshold) {
+      this.player.die();
     }
   }
   

@@ -248,121 +248,176 @@ export class LevelGenerator {
   }
   
   private createPoles(map: TileMap): void {
-    // Add horizontal poles strategically to connect platforms
-    // Poles should bridge gaps between platforms at the same height
+    // Poles in classic Lode Runner serve specific purposes:
+    // 1. Bridge gaps between platforms (ONLY when they connect two reachable areas)
+    // 2. Provide access to isolated areas that would otherwise be unreachable
+    // 3. Create strategic routes for escaping enemies
+    // 
+    // Poles should NEVER:
+    // - Hang over empty space with no purpose
+    // - Be placed directly above solid floor where walking would suffice
+    // - Lead to dead ends
     
-    // Find all platform endpoints (edges where you could fall off)
-    const platformEdges: { x: number; y: number; side: 'left' | 'right' }[] = [];
+    // First, identify all platform segments and their edges
+    interface Platform {
+      y: number;        // Row (surface level - the row you walk on is y+1)
+      startX: number;
+      endX: number;
+    }
     
-    for (let y = 1; y < map.height - 2; y++) {
-      for (let x = 1; x < map.width - 1; x++) {
-        const tile = map.getTile(x, y);
-        const above = map.getTile(x, y - 1);
+    const platforms: Platform[] = [];
+    
+    for (let y = 1; y < map.height - 1; y++) {
+      let platformStart = -1;
+      for (let x = 0; x < map.width; x++) {
+        const isWalkable = this.isWalkableSurface(map, x, y);
         
-        // This is a platform surface (brick with empty above)
-        if ((tile === TileType.BRICK || tile === TileType.BRICK_HARD || tile === TileType.LADDER) && 
-            (above === TileType.EMPTY || above === TileType.GOLD)) {
-          // Check if left edge
-          const leftTile = map.getTile(x - 1, y);
-          if (leftTile === TileType.EMPTY || leftTile === TileType.POLE) {
-            platformEdges.push({ x, y: y - 1, side: 'left' });
-          }
-          // Check if right edge
-          const rightTile = map.getTile(x + 1, y);
-          if (rightTile === TileType.EMPTY || rightTile === TileType.POLE) {
-            platformEdges.push({ x, y: y - 1, side: 'right' });
-          }
+        if (isWalkable && platformStart === -1) {
+          platformStart = x;
+        } else if (!isWalkable && platformStart !== -1) {
+          platforms.push({ y: y - 1, startX: platformStart, endX: x - 1 });
+          platformStart = -1;
         }
+      }
+      if (platformStart !== -1) {
+        platforms.push({ y: y - 1, startX: platformStart, endX: map.width - 1 });
       }
     }
     
-    // Try to connect platform edges with poles
-    const usedEdges = new Set<string>();
+    // Find pairs of platforms at the same height that could be connected
+    const polesCreated: { y: number; startX: number; endX: number }[] = [];
     
-    for (const edge of platformEdges) {
-      const edgeKey = `${edge.x},${edge.y},${edge.side}`;
-      if (usedEdges.has(edgeKey)) continue;
-      
-      // Look for a matching edge on the same row
-      const matchingEdges = platformEdges.filter(e => 
-        e.y === edge.y && 
-        e !== edge &&
-        !usedEdges.has(`${e.x},${e.y},${e.side}`)
-      );
-      
-      for (const match of matchingEdges) {
-        // Calculate gap
-        const startX = Math.min(edge.x, match.x);
-        const endX = Math.max(edge.x, match.x);
-        const gapLen = endX - startX;
+    for (let i = 0; i < platforms.length; i++) {
+      for (let j = i + 1; j < platforms.length; j++) {
+        const p1 = platforms[i];
+        const p2 = platforms[j];
         
-        // Only connect reasonable gaps (3-12 tiles)
-        if (gapLen < 3 || gapLen > 12) continue;
+        // Must be at same height
+        if (p1.y !== p2.y) continue;
         
-        // Verify the path is clear
+        // Determine gap between them
+        const leftPlatform = p1.endX < p2.startX ? p1 : p2;
+        const rightPlatform = p1.endX < p2.startX ? p2 : p1;
+        
+        const gapStart = leftPlatform.endX + 1;
+        const gapEnd = rightPlatform.startX - 1;
+        const gapLength = gapEnd - gapStart + 1;
+        
+        // Gap must be meaningful (3-15 tiles) - walking over small gaps defeats the purpose
+        if (gapLength < 3 || gapLength > 15) continue;
+        
+        // Check if path is clear (no obstructions)
         let pathClear = true;
-        for (let px = startX; px <= endX; px++) {
-          const t = map.getTile(px, edge.y);
-          if (t !== TileType.EMPTY && t !== TileType.POLE && t !== TileType.GOLD) {
+        for (let x = gapStart; x <= gapEnd; x++) {
+          const tile = map.getTile(x, p1.y);
+          if (tile !== TileType.EMPTY && tile !== TileType.GOLD) {
             pathClear = false;
             break;
           }
         }
+        if (!pathClear) continue;
         
-        if (pathClear && this.rng.chance(0.6)) {
-          // Create the pole bridge
-          for (let px = startX; px <= endX; px++) {
-            // Preserve gold if present
-            if (map.getTile(px, edge.y) !== TileType.GOLD) {
-              map.setTile(px, edge.y, TileType.POLE);
+        // IMPORTANT: Don't create pole if there's solid ground directly below the entire gap
+        // (that would be pointless - you could just walk)
+        let hasDropZone = false;
+        for (let x = gapStart; x <= gapEnd; x++) {
+          const below = map.getTile(x, p1.y + 1);
+          if (below !== TileType.BRICK && below !== TileType.BRICK_HARD && below !== TileType.BRICK_TRAP) {
+            hasDropZone = true;
+            break;
+          }
+        }
+        if (!hasDropZone) continue;
+        
+        // Don't overlap with existing poles
+        let overlaps = false;
+        for (const existing of polesCreated) {
+          if (existing.y === p1.y && 
+              !(gapEnd < existing.startX || gapStart > existing.endX)) {
+            overlaps = true;
+            break;
+          }
+        }
+        if (overlaps) continue;
+        
+        // Create pole with some randomness (not all valid gaps get poles)
+        const connectionChance = 0.5 + this.difficulty.complexity * 0.3;
+        if (this.rng.chance(connectionChance)) {
+          // Create pole from platform edge to platform edge
+          for (let x = leftPlatform.endX; x <= rightPlatform.startX; x++) {
+            const current = map.getTile(x, p1.y);
+            if (current === TileType.EMPTY) {
+              map.setTile(x, p1.y, TileType.POLE);
             }
           }
-          usedEdges.add(edgeKey);
-          usedEdges.add(`${match.x},${match.y},${match.side}`);
-          break;
+          polesCreated.push({ y: p1.y, startX: leftPlatform.endX, endX: rightPlatform.startX });
         }
       }
     }
     
-    // Add a few extra poles where they connect ladders to platforms
+    // Secondary: Create poles that extend from ladders to reach isolated platforms
+    // This is for cases where a ladder is near a platform but doesn't quite connect
     for (let y = 2; y < map.height - 3; y++) {
       for (let x = 2; x < map.width - 2; x++) {
-        // If there's a ladder with empty space to the side
-        if (map.getTile(x, y) === TileType.LADDER) {
-          // Check left side
-          if (map.getTile(x - 1, y) === TileType.EMPTY && this.rng.chance(0.3)) {
-            // Extend pole left until we hit something
-            for (let px = x - 1; px >= 0; px--) {
-              const t = map.getTile(px, y);
-              if (t !== TileType.EMPTY) break;
-              // Check if there's a platform below to land on
-              const below = map.getTile(px, y + 1);
-              if (below === TileType.BRICK || below === TileType.LADDER || below === TileType.BRICK_HARD) {
-                // Good endpoint - create pole from here to ladder
-                for (let fillX = px; fillX < x; fillX++) {
-                  map.setTile(fillX, y, TileType.POLE);
-                }
+        if (map.getTile(x, y) !== TileType.LADDER) continue;
+        
+        // Check each direction for a nearby platform that's not directly reachable
+        for (const dir of [-1, 1]) {
+          // Look for a platform edge in this direction
+          let targetX = -1;
+          for (let dx = 1; dx <= 8; dx++) {
+            const checkX = x + dir * dx;
+            if (checkX < 0 || checkX >= map.width) break;
+            
+            const tile = map.getTile(checkX, y);
+            if (tile !== TileType.EMPTY && tile !== TileType.POLE) break;
+            
+            // Check if there's a platform to land on here
+            const below = map.getTile(checkX, y + 1);
+            if (below === TileType.BRICK || below === TileType.BRICK_HARD || below === TileType.LADDER) {
+              targetX = checkX;
+              break;
+            }
+          }
+          
+          // Only create pole if target is at least 3 tiles away and we found a landing spot
+          if (targetX !== -1 && Math.abs(targetX - x) >= 3) {
+            // Check there's no floor directly connecting these positions
+            let needsPole = false;
+            for (let checkX = Math.min(x, targetX); checkX <= Math.max(x, targetX); checkX++) {
+              const below = map.getTile(checkX, y + 1);
+              if (below !== TileType.BRICK && below !== TileType.BRICK_HARD && below !== TileType.LADDER) {
+                needsPole = true;
                 break;
               }
             }
-          }
-          // Check right side
-          if (map.getTile(x + 1, y) === TileType.EMPTY && this.rng.chance(0.3)) {
-            for (let px = x + 1; px < map.width; px++) {
-              const t = map.getTile(px, y);
-              if (t !== TileType.EMPTY) break;
-              const below = map.getTile(px, y + 1);
-              if (below === TileType.BRICK || below === TileType.LADDER || below === TileType.BRICK_HARD) {
-                for (let fillX = x + 1; fillX <= px; fillX++) {
+            
+            if (needsPole && this.rng.chance(0.35)) {
+              const startX = Math.min(x, targetX);
+              const endX = Math.max(x, targetX);
+              for (let fillX = startX; fillX <= endX; fillX++) {
+                const current = map.getTile(fillX, y);
+                if (current === TileType.EMPTY) {
                   map.setTile(fillX, y, TileType.POLE);
                 }
-                break;
               }
             }
           }
         }
       }
     }
+  }
+  
+  /**
+   * Check if a position has a walkable surface (player can stand on the tile below)
+   */
+  private isWalkableSurface(map: TileMap, x: number, y: number): boolean {
+    if (y >= map.height) return false;
+    const tile = map.getTile(x, y);
+    return tile === TileType.BRICK || 
+           tile === TileType.BRICK_HARD || 
+           tile === TileType.BRICK_TRAP ||
+           tile === TileType.LADDER;
   }
   
   private addHardBricks(map: TileMap): void {
@@ -592,42 +647,57 @@ export class LevelGenerator {
   }
   
   private addExitLadders(map: TileMap): void {
-    // Find existing ladders that could become exit ladders
-    const existingLadders: number[] = [];
+    // In classic Lode Runner, the exit ladder is hidden until all gold is collected.
+    // The exit ladder typically extends from the top of an existing ladder to the top row.
+    // We'll HIDE the top 3 rungs of a high ladder - they appear when gold is collected.
+    
+    // Find existing ladders that reach the upper area (row 0-5)
+    const exitCandidates: { x: number; topY: number }[] = [];
     for (let x = 2; x < map.width - 2; x++) {
-      // Check if there's a ladder reaching close to the top
-      for (let y = 0; y < 5; y++) {
+      // Find where ladder starts from top going down
+      let topY = -1;
+      for (let y = 0; y < map.height; y++) {
         if (map.getTile(x, y) === TileType.LADDER) {
-          existingLadders.push(x);
-          break;
+          if (topY === -1) topY = y;
+        } else if (topY !== -1) {
+          break; // Found a gap, stop
         }
+      }
+      // Ladder must reach row 5 or higher (closer to top)
+      if (topY !== -1 && topY <= 5) {
+        exitCandidates.push({ x, topY });
       }
     }
     
-    // Extend 1 existing ladder to be exit ladder (only 1 for clearer gameplay)
-    this.rng.shuffle(existingLadders);
-    const numExits = Math.min(1, existingLadders.length);
+    // Sort by topmost (lowest Y) and pick one
+    exitCandidates.sort((a, b) => a.topY - b.topY);
     
-    for (let i = 0; i < numExits; i++) {
-      const x = existingLadders[i];
-      // Extend ladder to top
-      for (let y = 0; y < map.height; y++) {
+    if (exitCandidates.length > 0) {
+      // Pick from top candidates with randomness
+      const candidateCount = Math.min(3, exitCandidates.length);
+      const pickIdx = this.rng.range(0, candidateCount);
+      const chosen = exitCandidates[pickIdx];
+      const x = chosen.x;
+      
+      // Hide the top portion of this ladder (rows 0 to min(3, topY+3))
+      // These will be stored and the tiles converted to EMPTY
+      const hideUntilY = Math.min(chosen.topY + 3, 5); // Hide top 3 rungs, max row 5
+      
+      for (let y = 0; y <= hideUntilY; y++) {
         const tile = map.getTile(x, y);
-        if (tile === TileType.LADDER || tile === TileType.EMPTY) {
-          map.setTile(x, y, TileType.LADDER_EXIT);
+        if (tile === TileType.LADDER) {
+          // Convert to EMPTY (hidden) and store position
+          map.setTile(x, y, TileType.EMPTY);
+          map.exitLadders.push({ x, y });
+        } else if (tile === TileType.EMPTY) {
+          // Also include empty spaces that should become ladder when revealed
           map.exitLadders.push({ x, y });
         }
-        if (tile === TileType.BRICK || tile === TileType.BRICK_HARD) {
-          break;
-        }
       }
-    }
-    
-    // If no existing ladders, create new exit ladder from highest platform
-    if (map.exitLadders.length === 0) {
-      // Find highest platform
+    } else {
+      // No suitable ladder found - create a new exit ladder from highest platform
       let highestPlatformY = map.height;
-      let highestPlatformX = map.width / 2;
+      let highestPlatformX = Math.floor(map.width / 2);
       
       for (let y = 1; y < map.height - 3; y++) {
         for (let x = 3; x < map.width - 3; x++) {
@@ -640,14 +710,23 @@ export class LevelGenerator {
         }
       }
       
-      // Create exit ladder from this platform to top
+      // Create hidden exit ladder from top to this platform (it's entirely hidden)
       for (let y = 0; y < highestPlatformY; y++) {
-        map.setTile(highestPlatformX, y, TileType.LADDER_EXIT);
+        // Leave as EMPTY - will be revealed later
         map.exitLadders.push({ x: highestPlatformX, y });
       }
       
-      // Also add ladder going down from this platform
+      // Also add visible ladder going down from this platform for access
       this.extendLadderDown(map, highestPlatformX, highestPlatformY);
+    }
+    
+    // Ensure we have at least one exit ladder
+    if (map.exitLadders.length === 0) {
+      // Fallback: create hidden exit ladder at column 15
+      const x = 15;
+      for (let y = 0; y < 4; y++) {
+        map.exitLadders.push({ x, y });
+      }
     }
   }
   
@@ -676,8 +755,15 @@ export class LevelGenerator {
     for (let y = 6; y < 10; y++) {
       map.setTile(14, y, TileType.LADDER);
     }
+    // Add visible ladder leading up to the exit area
     for (let y = 0; y < 6; y++) {
-      map.setTile(20, y, TileType.LADDER_EXIT);
+      map.setTile(20, y, TileType.LADDER);
+    }
+    // Hidden exit ladder above row 0 (though this is already the top)
+    // Store positions for the visible ladder that will turn into exit markers
+    for (let y = 0; y < 3; y++) {
+      // These will be revealed when all gold collected
+      // For fallback, they're already ladders so this is mostly for consistency
       map.exitLadders.push({ x: 20, y });
     }
     

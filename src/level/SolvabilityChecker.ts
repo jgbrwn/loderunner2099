@@ -7,11 +7,15 @@ interface Position {
 }
 
 export class SolvabilityChecker {
+  // Set of exit ladder positions (treated as climbable during solvability check)
+  private exitLadderPositions: Set<string> = new Set();
   
   /**
    * Check if a level is solvable and return detailed info.
    */
   checkSolvability(map: TileMap): { solvable: boolean; score: number; debug: string } {
+    // Build set of exit ladder positions for quick lookup
+    this.exitLadderPositions = new Set(map.exitLadders.map(e => `${e.x},${e.y}`));
     // Quick checks
     if (map.goldPositions.length === 0) {
       return { solvable: false, score: 0, debug: 'no gold' };
@@ -101,7 +105,7 @@ export class SolvabilityChecker {
     const neighbors: Position[] = [];
     const { x, y } = pos;
     
-    const onLadder = map.isClimbable(x, y);
+    const onLadder = this.isClimbable(map, x, y);
     const onBar = map.isBar(x, y);
     const hasSupport = this.hasSupport(map, x, y);
     
@@ -120,14 +124,14 @@ export class SolvabilityChecker {
     }
     
     // Climb up (need ladder at current or target)
-    if (onLadder || map.isClimbable(x, y - 1)) {
+    if (onLadder || this.isClimbable(map, x, y - 1)) {
       if (this.canEnter(map, x, y - 1)) {
         neighbors.push({ x, y: y - 1 });
       }
     }
     
     // Climb down (need ladder at current or target)
-    if (onLadder || map.isClimbable(x, y + 1)) {
+    if (onLadder || this.isClimbable(map, x, y + 1)) {
       if (this.canEnter(map, x, y + 1)) {
         neighbors.push({ x, y: y + 1 });
       }
@@ -147,10 +151,21 @@ export class SolvabilityChecker {
     return neighbors;
   }
   
-  private hasSupport(map: TileMap, x: number, y: number): boolean {
+  /**
+   * Check if position is climbable (including hidden exit ladders)
+   */
+  private isClimbable(map: TileMap, x: number, y: number): boolean {
     if (map.isClimbable(x, y)) return true;
+    // Treat hidden exit ladders as climbable for solvability purposes
+    return this.exitLadderPositions.has(`${x},${y}`);
+  }
+  
+  private hasSupport(map: TileMap, x: number, y: number): boolean {
+    if (this.isClimbable(map, x, y)) return true;
     if (map.isBar(x, y)) return true;
     if (y + 1 >= map.height) return true;
+    // Exit ladders also count as support
+    if (this.exitLadderPositions.has(`${x},${y + 1}`)) return true;
     return map.isSupport(x, y + 1);
   }
   
@@ -171,8 +186,8 @@ export class SolvabilityChecker {
   private addFallDestination(map: TileMap, x: number, y: number, neighbors: Position[]): void {
     // Simulate falling
     while (y < map.height - 1) {
-      // Stop if on ladder
-      if (map.isClimbable(x, y)) break;
+      // Stop if on ladder (including hidden exit ladders)
+      if (this.isClimbable(map, x, y)) break;
       // Stop if on bar
       if (map.isBar(x, y)) break;
       // Stop if support below
