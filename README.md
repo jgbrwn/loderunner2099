@@ -5,7 +5,7 @@
 
 A modern web-based reimagining of the classic Lode Runner game with procedural level generation, multiple themes, and shareable seeds.
 
-![Lode Runner 2099 Gameplay](docs/screenshots/gameplay-cyber.png)
+![Lode Runner 2099 Gameplay](docs/screenshots/gameplay-cyber-v2.png?v=2)
 
 ## ✨ Features
 
@@ -115,7 +115,8 @@ loderunner2099/
 | **Neon Noir** | High contrast black with neon accents |
 | **Classic C64** | Authentic Commodore 64 color palette |
 
-![Matrix Theme](docs/screenshots/gameplay-matrix.png)
+![Ninja Difficulty](docs/screenshots/gameplay-ninja-v2.png?v=2)
+*Ninja difficulty level with increased complexity and enemies*
 
 ## 🎯 Difficulty Levels
 
