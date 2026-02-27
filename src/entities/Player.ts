@@ -29,6 +29,7 @@ export class Player {
   private digTimer: number = 0;
   private digX: number = 0;
   private digY: number = 0;
+  private queuedDig: -1 | 0 | 1 = 0; // Queued dig direction: -1=left, 1=right, 0=none
   private currentFrame: string = 'idle';
   private animTimer: number = 0;
   private animFrame: number = 0;
@@ -82,6 +83,7 @@ export class Player {
     // Check for falling
     if (this.shouldFall()) {
       this.state = PlayerState.FALLING;
+      this.queuedDig = 0; // Clear dig queue when falling
     }
     
     // Handle falling
@@ -105,32 +107,35 @@ export class Player {
       return;
     }
     
-    // Check dig inputs - can dig when stopped OR when nearly at grid position (progress < threshold)
-    // This mimics the C64 behavior where you can queue a dig while finishing movement
-    const DIG_THRESHOLD = 0.3; // Can dig when 70% or more complete with current move
-    const canAttemptDig = this.moveProgress === 0 || this.moveProgress >= (1 - DIG_THRESHOLD);
-    
-    // Check dig inputs first - support both keyboard JustDown and touch _justDown
+    // Check dig inputs - can queue dig at ANY time while moving
+    // The dig will execute when the player reaches the next grid position
     const digLeftPressed = digKeys.left._justDown || Phaser.Input.Keyboard.JustDown(digKeys.left);
     const digRightPressed = digKeys.right._justDown || Phaser.Input.Keyboard.JustDown(digKeys.right);
     
-    if (canAttemptDig && (digLeftPressed || digRightPressed)) {
-      // If we're mid-move, snap to target position first
-      if (this.moveProgress > 0) {
-        this.moveProgress = 0;
-        this.gridX = this.targetX;
-        this.gridY = this.targetY;
-        this.state = PlayerState.IDLE;
-      }
-      
-      if (digLeftPressed) {
-        this.tryDig(-1);
-      } else if (digRightPressed) {
-        this.tryDig(1);
-      }
+    // Queue dig if pressed (will execute when movement completes)
+    if (digLeftPressed) {
+      this.queuedDig = -1;
+      this.facing = 'left';
+    } else if (digRightPressed) {
+      this.queuedDig = 1;
+      this.facing = 'right';
     }
+    
+    // When at a grid position, try to execute queued dig
+    if (this.moveProgress === 0 && this.queuedDig !== 0) {
+      const direction = this.queuedDig;
+      this.queuedDig = 0;
+      if (this.tryDig(direction)) {
+        // Dig started successfully
+        this.updateSpritePosition();
+        this.updateAnimation(delta);
+        return;
+      }
+      // If dig failed, continue with normal movement handling
+    }
+    
     // Handle movement input when fully stopped
-    else if (this.moveProgress === 0) {
+    if (this.moveProgress === 0) {
       if (cursors.left.isDown) {
         this.tryMove(-1, 0);
       } else if (cursors.right.isDown) {
@@ -377,6 +382,7 @@ export class Player {
     this.targetY = gridY;
     this.moveProgress = 0;
     this.state = PlayerState.IDLE;
+    this.queuedDig = 0;
     this.updateSpritePosition();
   }
 }
