@@ -272,5 +272,12 @@ export class MenuScene extends Phaser.Scene {
       });
       this.shareNotice.setOrigin(0.5);
     }
+    
+    // Auto-start if 'start' param is present
+    const autoStart = params.get('start');
+    if (autoStart === '1' || autoStart === 'true') {
+      // Delay slightly to ensure everything is initialized
+      this.time.delayedCall(100, () => this.startGame());
+    }
   }
 }
