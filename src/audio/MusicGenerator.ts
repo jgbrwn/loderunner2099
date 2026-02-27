@@ -87,7 +87,7 @@ export class MusicGenerator {
     const bass = this.generateBass(key, scale, bassPattern, chordProgression, totalSixteenths, sixteenthDuration);
     const arpeggio = this.generateArpeggio(key, scale, chordProgression, totalSixteenths, sixteenthDuration);
     
-    return {
+    const track = {
       melody,
       bass,
       arpeggio,
@@ -95,6 +95,8 @@ export class MusicGenerator {
       loopDuration,
       key
     };
+    
+    return track;
   }
   
   private selectScale(): number[] {
@@ -232,7 +234,7 @@ export class MusicGenerator {
     sixteenthDuration: number
   ): MusicNote[] {
     const notes: MusicNote[] = [];
-    const baseOctave = 2;  // Low octave for bass
+    const baseOctave = 3;  // Bass octave (not too low)
     
     for (let bar = 0; bar < totalSixteenths / 16; bar++) {
       const chordRoot = chordProg[bar % chordProg.length];
