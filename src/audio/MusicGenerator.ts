@@ -1,228 +1,235 @@
 import { SeededRandom } from '../utils/SeededRandom';
 
-/**
- * Procedural music generator for Lode Runner 2099.
- * Generates deterministic retro chiptune music from a seed.
- */
-
 export interface MusicNote {
-  pitch: number;      // MIDI note number (60 = middle C)
-  startTime: number;  // seconds from loop start
-  duration: number;   // note length in seconds
-  velocity: number;   // 0-1 volume
+  pitch: number;
+  startTime: number;
+  duration: number;
+  velocity: number;
 }
 
 export interface MusicTrack {
   melody: MusicNote[];
   bass: MusicNote[];
   arpeggio: MusicNote[];
-  tempo: number;        // BPM
-  loopDuration: number; // seconds
-  key: number;          // root note (0-11, 0=C)
+  tempo: number;
+  loopDuration: number;
+  key: number;
 }
 
-// Scale definitions (intervals from root)
+// Scale definitions
 const SCALES = {
-  minor: [0, 2, 3, 5, 7, 8, 10],           // Natural minor
-  pentatonic: [0, 3, 5, 7, 10],            // Minor pentatonic (safe, always sounds good)
-  dorian: [0, 2, 3, 5, 7, 9, 10],          // Dorian (classic game feel)
-  phrygian: [0, 1, 3, 5, 7, 8, 10],        // Phrygian (darker, intense)
-  major: [0, 2, 4, 5, 7, 9, 11],           // Major (brighter)
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  pentatonic: [0, 3, 5, 7, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  major: [0, 2, 4, 5, 7, 9, 11],
 };
 
-// Bass pattern types
-type BassPattern = 'root-fifth' | 'octave-pulse' | 'walking' | 'arpeggio';
-
-// Melody rhythm patterns (in 16th notes, 1 = note, 0 = rest)
+// More varied rhythm patterns
 const MELODY_RHYTHMS = [
-  [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],  // Steady 8ths
-  [1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1],  // Syncopated
-  [1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0],  // Driving
-  [1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0],  // Bouncy
-  [1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0],  // Sparse
-  [1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0],  // Triplet feel
+  [1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0],  // Varied
+  [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0],  // Syncopated
+  [1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1],  // Punchy
+  [1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0],  // Off-beat
+  [1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0],  // Sparse swing
+  [1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0],  // Busy then sparse
+  [1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0],  // Call-response
 ];
 
-// Chord progressions (scale degrees, 0-indexed)
-const CHORD_PROGRESSIONS = [
-  [0, 3, 4, 4],    // i - iv - v - v
-  [0, 5, 3, 4],    // i - VI - iv - v
-  [0, 0, 3, 4],    // i - i - iv - v
-  [0, 3, 0, 4],    // i - iv - i - v
-  [0, 4, 5, 3],    // i - v - VI - iv
-  [0, 2, 3, 4],    // i - iii - iv - v
+// Melodic motifs (pitch movements)
+const MOTIFS = [
+  [0, 2, 4, 2],           // Up and back
+  [0, -1, -2, 0],         // Neighbor tone
+  [0, 4, 2, 5],           // Leap up
+  [0, -2, -4, -2],        // Down and back  
+  [0, 1, 2, 1],           // Step up
+  [0, 0, 2, 0],           // Pedal with escape
+  [0, 3, 2, 4],           // Zig-zag up
+  [0, -3, -2, -4],        // Zig-zag down
 ];
+
+const CHORD_PROGRESSIONS = [
+  [0, 3, 4, 4],
+  [0, 5, 3, 4],
+  [0, 0, 3, 4],
+  [0, 3, 0, 4],
+  [0, 4, 5, 3],
+  [0, 2, 5, 4],
+  [0, 3, 5, 4],
+];
+
+type BassPattern = 'root-fifth' | 'octave-pulse' | 'walking' | 'arpeggio' | 'driving';
 
 export class MusicGenerator {
   private rng: SeededRandom;
   private difficulty: string;
   
   constructor(seed: string | number, levelNumber: number, difficulty: string = 'normal') {
-    // Combine seed with level for unique music per level
     this.rng = new SeededRandom(`${seed}-music-${levelNumber}`);
     this.difficulty = difficulty;
   }
   
-  /**
-   * Generate a complete music track for the level
-   */
   generate(): MusicTrack {
-    const key = this.rng.range(0, 12);  // Random key
+    const key = this.rng.range(0, 12);
     const scale = this.selectScale();
     const tempo = this.selectTempo();
-    const bars = 4;  // 4 bar loop
-    const beatsPerBar = 4;
-    const sixteenthsPerBeat = 4;
-    const totalSixteenths = bars * beatsPerBar * sixteenthsPerBeat;
-    const sixteenthDuration = 60 / tempo / 4;  // Duration of one 16th note
+    const bars = 8;  // 8 bar loop for more variety
+    const sixteenthDuration = 60 / tempo / 4;
+    const totalSixteenths = bars * 16;
     const loopDuration = totalSixteenths * sixteenthDuration;
     
-    // Select patterns
     const chordProgression = this.rng.pick(CHORD_PROGRESSIONS);
-    const melodyRhythm = this.rng.pick(MELODY_RHYTHMS);
     const bassPattern = this.selectBassPattern();
     
-    // Generate tracks
-    const melody = this.generateMelody(key, scale, melodyRhythm, chordProgression, totalSixteenths, sixteenthDuration);
-    const bass = this.generateBass(key, scale, bassPattern, chordProgression, totalSixteenths, sixteenthDuration);
-    const arpeggio = this.generateArpeggio(key, scale, chordProgression, totalSixteenths, sixteenthDuration);
+    // Generate with more sophisticated algorithms
+    const melody = this.generateMelody(key, scale, chordProgression, bars, sixteenthDuration);
+    const bass = this.generateBass(key, scale, bassPattern, chordProgression, bars, sixteenthDuration);
+    const arpeggio = this.generateArpeggio(key, scale, chordProgression, bars, sixteenthDuration);
     
-    const track = {
-      melody,
-      bass,
-      arpeggio,
-      tempo,
-      loopDuration,
-      key
-    };
-    
-    return track;
+    return { melody, bass, arpeggio, tempo, loopDuration, key };
   }
   
   private selectScale(): number[] {
-    const scaleWeights: { [key: string]: number } = {
-      easy: 0,    // Pentatonic/major (safe)
-      normal: 1,  // Minor/dorian
-      hard: 2,    // Dorian/phrygian
-      ninja: 3    // Phrygian (intense)
+    const diffScales: { [key: string]: number[][] } = {
+      easy: [SCALES.pentatonic, SCALES.major],
+      normal: [SCALES.minor, SCALES.dorian],
+      hard: [SCALES.dorian, SCALES.phrygian],
+      ninja: [SCALES.phrygian, SCALES.minor],
     };
-    
-    const weight = scaleWeights[this.difficulty] ?? 1;
-    const scales = [
-      [SCALES.pentatonic, SCALES.major],           // Easy
-      [SCALES.minor, SCALES.dorian],               // Normal
-      [SCALES.dorian, SCALES.phrygian],            // Hard
-      [SCALES.phrygian, SCALES.minor],             // Ninja
-    ];
-    
-    return this.rng.pick(scales[weight]);
+    return this.rng.pick(diffScales[this.difficulty] ?? diffScales.normal);
   }
   
   private selectTempo(): number {
-    const tempoRanges: { [key: string]: [number, number] } = {
+    const ranges: { [key: string]: [number, number] } = {
       easy: [100, 120],
       normal: [120, 140],
       hard: [140, 160],
       ninja: [160, 180]
     };
-    
-    const [min, max] = tempoRanges[this.difficulty] ?? [120, 140];
+    const [min, max] = ranges[this.difficulty] ?? [120, 140];
     return this.rng.range(min, max + 1);
   }
   
   private selectBassPattern(): BassPattern {
-    const patterns: BassPattern[] = ['root-fifth', 'octave-pulse', 'walking', 'arpeggio'];
-    return this.rng.pick(patterns);
+    return this.rng.pick(['root-fifth', 'octave-pulse', 'walking', 'arpeggio', 'driving']);
   }
   
   private generateMelody(
     key: number,
     scale: number[],
-    rhythm: number[],
     chordProg: number[],
-    totalSixteenths: number,
+    bars: number,
     sixteenthDuration: number
   ): MusicNote[] {
     const notes: MusicNote[] = [];
-    const baseOctave = 5;  // Octave 5 (middle-high range)
+    let currentPitch = 60 + key; // Start at middle C + key
     
-    // Start on a chord tone
-    let currentScaleIndex = this.rng.range(0, 3);  // Start on 1st, 3rd, or 5th
-    let currentOctave = baseOctave;
+    // Pick different rhythms for different sections
+    const rhythm1 = this.rng.pick(MELODY_RHYTHMS);
+    const rhythm2 = this.rng.pick(MELODY_RHYTHMS);
     
-    for (let i = 0; i < totalSixteenths; i++) {
-      const rhythmIndex = i % rhythm.length;
-      const barIndex = Math.floor(i / 16);
-      const chordRoot = chordProg[barIndex % chordProg.length];
+    // Pick motifs for melodic coherence
+    const motif1 = this.rng.pick(MOTIFS);
+    const motif2 = this.rng.pick(MOTIFS);
+    
+    for (let bar = 0; bar < bars; bar++) {
+      const chord = chordProg[bar % chordProg.length];
+      const chordRoot = key + scale[chord % scale.length];
       
-      if (rhythm[rhythmIndex] === 1) {
-        // Decide movement
-        const movement = this.selectMelodyMovement();
-        currentScaleIndex += movement;
-        
-        // Keep in reasonable range
-        while (currentScaleIndex < 0) {
-          currentScaleIndex += scale.length;
-          currentOctave--;
+      // Use different rhythm for A and B sections
+      const rhythm = bar < 4 ? rhythm1 : rhythm2;
+      const motif = bar < 4 ? motif1 : motif2;
+      
+      // Every 2 bars, consider resetting to a chord tone for coherence
+      if (bar % 2 === 0 && this.rng.chance(0.7)) {
+        const chordTones = [0, 2, 4].map(i => chordRoot + (i < scale.length ? scale[i] : 0));
+        currentPitch = this.rng.pick(chordTones) + 60;
+      }
+      
+      let motifIndex = 0;
+      
+      for (let i = 0; i < 16; i++) {
+        if (rhythm[i] === 1) {
+          // Apply motif movement
+          const movement = motif[motifIndex % motif.length];
+          motifIndex++;
+          
+          // Add some randomness to movement
+          let actualMovement = movement;
+          if (this.rng.chance(0.3)) {
+            actualMovement += this.rng.range(-1, 2);
+          }
+          
+          // Apply movement within scale
+          const currentScaleIndex = this.findClosestScaleIndex(currentPitch - key, scale);
+          let newScaleIndex = currentScaleIndex + actualMovement;
+          let octaveShift = 0;
+          
+          while (newScaleIndex < 0) {
+            newScaleIndex += scale.length;
+            octaveShift -= 12;
+          }
+          while (newScaleIndex >= scale.length) {
+            newScaleIndex -= scale.length;
+            octaveShift += 12;
+          }
+          
+          currentPitch = key + scale[newScaleIndex] + 60 + octaveShift;
+          
+          // Keep in playable range
+          while (currentPitch < 48) currentPitch += 12;
+          while (currentPitch > 84) currentPitch -= 12;
+          
+          // Vary note duration based on position and random
+          let duration = sixteenthDuration;
+          if (i % 4 === 0 && this.rng.chance(0.4)) {
+            duration = sixteenthDuration * 2; // Longer on beats
+          } else if (this.rng.chance(0.2)) {
+            duration = sixteenthDuration * 1.5;
+          }
+          
+          // Vary velocity for dynamics
+          let velocity = 0.6;
+          if (i === 0) velocity = 0.9;  // Downbeat accent
+          else if (i % 4 === 0) velocity = 0.75;  // Beat accent
+          else if (i % 2 === 1) velocity = 0.5;  // Off-beats softer
+          
+          // Add occasional grace notes for interest
+          if (this.rng.chance(0.1) && i > 0) {
+            const graceNote = currentPitch + (this.rng.chance(0.5) ? 2 : -2);
+            notes.push({
+              pitch: graceNote,
+              startTime: (bar * 16 + i) * sixteenthDuration - sixteenthDuration * 0.15,
+              duration: sixteenthDuration * 0.15,
+              velocity: velocity * 0.6
+            });
+          }
+          
+          notes.push({
+            pitch: currentPitch,
+            startTime: (bar * 16 + i) * sixteenthDuration,
+            duration: duration * 0.85,
+            velocity
+          });
         }
-        while (currentScaleIndex >= scale.length) {
-          currentScaleIndex -= scale.length;
-          currentOctave++;
-        }
-        
-        // Clamp octave
-        if (currentOctave < 4) {
-          currentOctave = 4;
-          currentScaleIndex = this.rng.range(0, scale.length);
-        }
-        if (currentOctave > 6) {
-          currentOctave = 6;
-          currentScaleIndex = this.rng.range(0, scale.length);
-        }
-        
-        // On strong beats, tend toward chord tones
-        if (i % 4 === 0 && this.rng.chance(0.6)) {
-          // Snap to chord tone (root, 3rd, or 5th of current chord)
-          const chordTones = [0, 2, 4].map(ct => (chordRoot + ct) % scale.length);
-          currentScaleIndex = this.rng.pick(chordTones);
-        }
-        
-        const pitch = key + scale[currentScaleIndex] + (currentOctave * 12);
-        
-        // Determine note duration (look ahead for rests)
-        let duration = sixteenthDuration * 0.9;  // Default: one 16th
-        let lookAhead = 1;
-        while (i + lookAhead < totalSixteenths && 
-               lookAhead < 4 && 
-               rhythm[(i + lookAhead) % rhythm.length] === 0) {
-          duration += sixteenthDuration;
-          lookAhead++;
-        }
-        
-        notes.push({
-          pitch,
-          startTime: i * sixteenthDuration,
-          duration: duration * 0.8,  // Slight gap between notes
-          velocity: i % 4 === 0 ? 0.8 : 0.6  // Accent on beats
-        });
       }
     }
     
     return notes;
   }
   
-  private selectMelodyMovement(): number {
-    // Weighted random movement favoring small steps
-    const movements = [-2, -1, -1, 0, 0, 0, 1, 1, 2];
-    
-    // Occasionally add larger jumps based on difficulty
-    if (this.difficulty === 'hard' || this.difficulty === 'ninja') {
-      if (this.rng.chance(0.15)) {
-        return this.rng.pick([-3, 3, -4, 4]);
+  private findClosestScaleIndex(pitch: number, scale: number[]): number {
+    const normalizedPitch = ((pitch % 12) + 12) % 12;
+    let closest = 0;
+    let minDist = 12;
+    for (let i = 0; i < scale.length; i++) {
+      const dist = Math.abs(scale[i] - normalizedPitch);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = i;
       }
     }
-    
-    return this.rng.pick(movements);
+    return closest;
   }
   
   private generateBass(
@@ -230,68 +237,95 @@ export class MusicGenerator {
     scale: number[],
     pattern: BassPattern,
     chordProg: number[],
-    totalSixteenths: number,
+    bars: number,
     sixteenthDuration: number
   ): MusicNote[] {
     const notes: MusicNote[] = [];
-    const baseOctave = 3;  // Bass octave (not too low)
+    const baseOctave = 3;
     
-    for (let bar = 0; bar < totalSixteenths / 16; bar++) {
-      const chordRoot = chordProg[bar % chordProg.length];
-      const rootPitch = key + scale[chordRoot % scale.length] + (baseOctave * 12);
-      const fifthPitch = key + scale[(chordRoot + 4) % scale.length] + (baseOctave * 12);
+    for (let bar = 0; bar < bars; bar++) {
+      const chord = chordProg[bar % chordProg.length];
+      const rootPitch = key + scale[chord % scale.length] + (baseOctave * 12);
+      const fifthPitch = key + scale[(chord + 4) % scale.length] + (baseOctave * 12);
+      const thirdPitch = key + scale[(chord + 2) % scale.length] + (baseOctave * 12);
       const barStart = bar * 16 * sixteenthDuration;
+      
+      // Vary pattern slightly each bar
+      const variation = bar % 2;
       
       switch (pattern) {
         case 'root-fifth':
-          // Root-5th alternating pattern
           for (let beat = 0; beat < 4; beat++) {
+            const pitch = variation === 0 
+              ? (beat % 2 === 0 ? rootPitch : fifthPitch)
+              : (beat === 0 ? rootPitch : beat === 2 ? fifthPitch : thirdPitch);
             notes.push({
-              pitch: beat % 2 === 0 ? rootPitch : fifthPitch,
+              pitch,
               startTime: barStart + beat * 4 * sixteenthDuration,
               duration: sixteenthDuration * 3,
-              velocity: 0.7
+              velocity: beat === 0 ? 0.8 : 0.6
             });
           }
           break;
           
         case 'octave-pulse':
-          // Steady 8th note pulse on root
           for (let eighth = 0; eighth < 8; eighth++) {
-            const octaveShift = eighth % 2 === 0 ? 0 : 12;
+            const octaveShift = (eighth + variation) % 2 === 0 ? 0 : 12;
             notes.push({
               pitch: rootPitch + octaveShift,
               startTime: barStart + eighth * 2 * sixteenthDuration,
               duration: sixteenthDuration * 1.5,
-              velocity: eighth % 2 === 0 ? 0.7 : 0.5
+              velocity: eighth % 4 === 0 ? 0.75 : 0.5
             });
           }
           break;
           
         case 'walking':
-          // Walking bass line
-          const walkNotes = [0, 2, 4, 2];  // Scale degrees to walk through
+          const walkPatterns = [
+            [0, 2, 4, 5],
+            [0, 4, 2, 6],
+            [0, 2, 4, 2],
+            [0, -1, 0, 2]
+          ];
+          const walkPattern = walkPatterns[(bar + variation) % walkPatterns.length];
           for (let beat = 0; beat < 4; beat++) {
-            const walkIndex = (chordRoot + walkNotes[beat]) % scale.length;
+            const walkDegree = (chord + walkPattern[beat] + scale.length) % scale.length;
             notes.push({
-              pitch: key + scale[walkIndex] + (baseOctave * 12),
+              pitch: key + scale[walkDegree] + (baseOctave * 12),
               startTime: barStart + beat * 4 * sixteenthDuration,
               duration: sixteenthDuration * 3.5,
-              velocity: 0.65
+              velocity: beat === 0 ? 0.7 : 0.55
             });
           }
           break;
           
         case 'arpeggio':
-          // Arpeggiated bass
-          const arpNotes = [0, 2, 4, 2, 0, 4, 2, 4];  // Arpeggio pattern
+          const arpPatterns = [
+            [0, 2, 4, 2, 0, 4, 2, 4],
+            [0, 4, 2, 4, 0, 2, 4, 2],
+            [0, 2, 0, 4, 2, 4, 0, 2]
+          ];
+          const arpPattern = arpPatterns[(bar + variation) % arpPatterns.length];
           for (let eighth = 0; eighth < 8; eighth++) {
-            const arpIndex = (chordRoot + arpNotes[eighth]) % scale.length;
+            const arpDegree = (chord + arpPattern[eighth]) % scale.length;
             notes.push({
-              pitch: key + scale[arpIndex] + (baseOctave * 12),
+              pitch: key + scale[arpDegree] + (baseOctave * 12),
               startTime: barStart + eighth * 2 * sixteenthDuration,
               duration: sixteenthDuration * 1.8,
-              velocity: eighth % 4 === 0 ? 0.7 : 0.5
+              velocity: eighth % 4 === 0 ? 0.7 : 0.45
+            });
+          }
+          break;
+          
+        case 'driving':
+          // Steady 16th notes with accents
+          for (let i = 0; i < 16; i++) {
+            const useFifth = i % 8 >= 4;
+            notes.push({
+              pitch: useFifth ? fifthPitch : rootPitch,
+              startTime: barStart + i * sixteenthDuration,
+              duration: sixteenthDuration * 0.8,
+              velocity: i % 4 === 0 ? 0.7 : i % 2 === 0 ? 0.5 : 0.35
             });
           }
           break;
@@ -305,48 +339,77 @@ export class MusicGenerator {
     key: number,
     scale: number[],
     chordProg: number[],
-    totalSixteenths: number,
+    bars: number,
     sixteenthDuration: number
   ): MusicNote[] {
     const notes: MusicNote[] = [];
-    const baseOctave = 4;  // Mid range
+    const baseOctave = 4;
     
-    // Arpeggio patterns (in 16ths within a bar)
-    const patterns = [
-      [0, 4, 8, 12],           // Quarter notes
-      [0, 2, 4, 6, 8, 10, 12, 14],  // 8th notes
-      [0, 3, 6, 9, 12, 15],   // Dotted 8ths feel
+    // Pick an arpeggio style
+    const styles = ['up', 'down', 'updown', 'random'];
+    const style = this.rng.pick(styles);
+    
+    // Pick timing pattern
+    const timings = [
+      [0, 4, 8, 12],
+      [0, 3, 6, 9, 12],
+      [2, 6, 10, 14],
+      [0, 2, 4, 8, 10, 12]
     ];
-    const pattern = this.rng.pick(patterns);
+    const timing = this.rng.pick(timings);
     
-    for (let bar = 0; bar < totalSixteenths / 16; bar++) {
-      const chordRoot = chordProg[bar % chordProg.length];
+    for (let bar = 0; bar < bars; bar++) {
+      const chord = chordProg[bar % chordProg.length];
       const barStart = bar * 16 * sixteenthDuration;
       
-      // Chord tones: root, 3rd, 5th
-      const chordTones = [0, 2, 4].map(ct => 
-        key + scale[(chordRoot + ct) % scale.length] + (baseOctave * 12)
-      );
+      // Build chord tones with octave variety
+      const chordTones = [
+        key + scale[chord % scale.length] + (baseOctave * 12),
+        key + scale[(chord + 2) % scale.length] + (baseOctave * 12),
+        key + scale[(chord + 4) % scale.length] + (baseOctave * 12),
+        key + scale[chord % scale.length] + ((baseOctave + 1) * 12),
+      ];
       
-      pattern.forEach((pos, idx) => {
-        if (bar * 16 + pos < totalSixteenths) {
-          notes.push({
-            pitch: chordTones[idx % chordTones.length],
-            startTime: barStart + pos * sixteenthDuration,
-            duration: sixteenthDuration * 1.5,
-            velocity: 0.35  // Quieter, background texture
-          });
+      let arpIndex = 0;
+      const direction = style === 'down' ? -1 : 1;
+      
+      for (const pos of timing) {
+        if (bar * 16 + pos >= bars * 16) continue;
+        
+        let toneIndex: number;
+        switch (style) {
+          case 'up':
+            toneIndex = arpIndex % chordTones.length;
+            arpIndex++;
+            break;
+          case 'down':
+            toneIndex = (chordTones.length - 1 - (arpIndex % chordTones.length));
+            arpIndex++;
+            break;
+          case 'updown':
+            const cycle = arpIndex % (chordTones.length * 2 - 2);
+            toneIndex = cycle < chordTones.length ? cycle : (chordTones.length * 2 - 2 - cycle);
+            arpIndex++;
+            break;
+          case 'random':
+          default:
+            toneIndex = this.rng.range(0, chordTones.length);
+            break;
         }
-      });
+        
+        notes.push({
+          pitch: chordTones[toneIndex],
+          startTime: barStart + pos * sixteenthDuration,
+          duration: sixteenthDuration * 2,
+          velocity: pos === 0 ? 0.4 : 0.3
+        });
+      }
     }
     
     return notes;
   }
 }
 
-/**
- * Convert MIDI note number to frequency in Hz
- */
 export function midiToFrequency(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }

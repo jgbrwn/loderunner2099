@@ -12,7 +12,7 @@ export class SoundManager {
   private enabled: boolean = true;
   private musicEnabled: boolean = true;
   private volume: number = 0.5;
-  private musicVolume: number = 0.5;
+  private musicVolume: number = 0.25;  // Keep music quieter than SFX
   
   // Music state
   private currentTrack: MusicTrack | null = null;
