@@ -100,13 +100,14 @@ export class MusicGenerator {
   }
   
   private selectTempo(): number {
+    // Gentle tempo progression - Easy feels good, others just slightly faster
     const ranges: { [key: string]: [number, number] } = {
-      easy: [100, 120],
-      normal: [120, 140],
-      hard: [140, 160],
-      ninja: [160, 180]
+      easy: [100, 115],
+      normal: [110, 125],
+      hard: [115, 130],
+      ninja: [120, 138]
     };
-    const [min, max] = ranges[this.difficulty] ?? [120, 140];
+    const [min, max] = ranges[this.difficulty] ?? [110, 125];
     return this.rng.range(min, max + 1);
   }
   
