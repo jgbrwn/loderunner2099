@@ -15,7 +15,8 @@ A modern web-based reimagining of the classic Lode Runner game with procedural l
 - **Seed Sharing** - Share specific levels with friends via URL or seed code
 - **Adjustable Speed** - 6 speed settings from 0.5x to 2x
 - **CRT Filter** - Optional retro scanline effect
-- **Sound Effects** - Retro-style audio with mute option
+- **Procedural Music** - Unique chiptune soundtrack generated for each level from the same seed
+- **Sound Effects** - Retro-style audio with separate mute options for SFX and music
 - **Responsive Controls** - Keyboard support with on-screen hints
 
 ## 🎮 How to Play
@@ -31,7 +32,8 @@ A modern web-based reimagining of the classic Lode Runner game with procedural l
 | P | Pause |
 | T | Change Theme |
 | C | Toggle CRT Effect |
-| M | Mute/Unmute |
+| M | Mute/Unmute All |
+| B | Toggle Music |
 | R | Restart Level |
 | ESC | Return to Menu (double-tap) |
 
@@ -120,12 +122,23 @@ loderunner2099/
 
 ## 🎯 Difficulty Levels
 
-| Difficulty | Complexity | Ladders | Enemies | Gold | Speed |
-|------------|------------|---------|---------|------|-------|
-| Easy | Low | Many | 1-2 | 5-8 | 0.7x |
-| Normal | Medium | Moderate | 2-3 | 8-12 | 1.0x |
-| Hard | High | Few | 3-4 | 12-16 | 1.2x |
-| Ninja | Maximum | Sparse | 4-5 | 16-20 | 1.4x |
+| Difficulty | Complexity | Ladders | Enemies | Gold | Speed | Music |
+|------------|------------|---------|---------|------|-------|-------|
+| Easy | Low | Many | 1-2 | 5-8 | 0.7x | 100-120 BPM, major/pentatonic |
+| Normal | Medium | Moderate | 2-3 | 8-12 | 1.0x | 120-140 BPM, minor/dorian |
+| Hard | High | Few | 3-4 | 12-16 | 1.2x | 140-160 BPM, dorian/phrygian |
+| Ninja | Maximum | Sparse | 4-5 | 16-20 | 1.4x | 160-180 BPM, phrygian/minor |
+
+## 🎵 Procedural Music
+
+Each level has a unique chiptune soundtrack generated procedurally from the same seed as the level itself. This means:
+
+- **Deterministic**: The same seed always produces the same music
+- **Unique per level**: Each level in a playthrough has different music
+- **Difficulty-scaled**: Harder difficulties have faster, more intense music
+- **Authentic retro sound**: Square wave melody, triangle wave bass
+
+Press **B** to toggle music on/off (separate from the **M** mute which silences everything).
 
 ## 🔗 Sharing Levels
 
