@@ -9,6 +9,7 @@ import { TileGraphics } from '../graphics/TileGraphics';
 import { CRTEffect } from '../graphics/CRTEffect';
 import { TouchControls } from '../ui/TouchControls';
 import { getSoundManager } from '../audio/SoundManager';
+import { MusicGenerator, MusicTrack } from '../audio/MusicGenerator';
 import { getHighScores } from '../systems/HighScores';
 
 export class GameScene extends Phaser.Scene {
@@ -54,7 +55,11 @@ export class GameScene extends Phaser.Scene {
   private keyTheme!: Phaser.Input.Keyboard.Key;
   private keyCRT!: Phaser.Input.Keyboard.Key;
   private keyMute!: Phaser.Input.Keyboard.Key;
+  private keyMusic!: Phaser.Input.Keyboard.Key;
   private keyEsc!: Phaser.Input.Keyboard.Key;
+  
+  // Music system
+  private currentMusicTrack: MusicTrack | null = null;
   
   // ESC menu tracking - use raw DOM listener for reliability
   private escPressCount: number = 0;
@@ -144,6 +149,7 @@ export class GameScene extends Phaser.Scene {
     this.keyTheme = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.T);
     this.keyCRT = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.C);
     this.keyMute = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+    this.keyMusic = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.B);
     this.keyEsc = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     
     // Also bind = for speed up
@@ -170,7 +176,7 @@ export class GameScene extends Phaser.Scene {
     
     // Create HUD controls text (keyboard shortcuts) - centered
     this.hudControls = this.add.text(CONFIG.GAME_WIDTH / 2, CONFIG.GRID_HEIGHT * CONFIG.TILE_SIZE + 22, 
-      'Z/X:Dig | +/-:Speed | P:Pause | T:Theme | C:CRT | M:Mute | R:Restart | ESC:Menu', {
+      'Z/X:Dig | +/-:Speed | P:Pause | T:Theme | C:CRT | M:Mute | B:Music | R:Restart | ESC:Menu', {
       fontFamily: 'monospace',
       fontSize: '10px',
       color: '#666688'
@@ -297,6 +303,18 @@ export class GameScene extends Phaser.Scene {
     }
     
     this.updateHUD();
+    
+    // Generate and play level music
+    this.generateAndPlayMusic();
+  }
+  
+  private generateAndPlayMusic(): void {
+    const musicSeed = `${this.seedCode}-L${this.level}`;
+    const generator = new MusicGenerator(musicSeed, this.level, this.difficulty);
+    this.currentMusicTrack = generator.generate();
+    
+    const sound = getSoundManager();
+    sound.playMusic(this.currentMusicTrack);
   }
   
   private clearLevel(): void {
@@ -463,7 +481,15 @@ export class GameScene extends Phaser.Scene {
     // Handle system keys
     if (Phaser.Input.Keyboard.JustDown(this.keyPause)) {
       this.paused = !this.paused;
-      this.showMessage(this.paused ? 'PAUSED\n\nP to resume' : '');
+      if (this.paused) {
+        getSoundManager().stopMusic();
+        this.showMessage('PAUSED\n\nP to resume');
+      } else {
+        if (this.currentMusicTrack && getSoundManager().isMusicEnabled()) {
+          getSoundManager().playMusic(this.currentMusicTrack);
+        }
+        this.showMessage('');
+      }
     }
     
     if (Phaser.Input.Keyboard.JustDown(this.keyTheme)) {
@@ -478,6 +504,12 @@ export class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.keyMute)) {
       const enabled = getSoundManager().toggle();
       this.showMessage(enabled ? 'SOUND ON' : 'SOUND OFF', 1000);
+    }
+    
+    if (Phaser.Input.Keyboard.JustDown(this.keyMusic)) {
+      const musicEnabled = getSoundManager().toggleMusic();
+      this.showMessage(musicEnabled ? 'MUSIC ON' : 'MUSIC OFF', 1000);
+      this.updateHUD();
     }
     
     if (Phaser.Input.Keyboard.JustDown(this.keyRestart)) {
@@ -887,6 +919,7 @@ export class GameScene extends Phaser.Scene {
     }
     
     this.level++;
+    getSoundManager().stopMusic();  // Stop level music for victory fanfare
     getSoundManager().playLevelComplete();
     
     const lifeMsg = gainedLife ? '\n+1 LIFE!' : '';
@@ -903,6 +936,7 @@ export class GameScene extends Phaser.Scene {
     
     if (this.lives <= 0) {
       this.gameOver = true;
+      getSoundManager().stopMusic();
       this.checkHighScore();
     } else {
       this.showMessage(`LIVES: ${this.lives}`, 1500);
@@ -1017,6 +1051,8 @@ export class GameScene extends Phaser.Scene {
     const speed = CONFIG.SPEED_MULTIPLIERS[this.speedIndex];
     const diffName = DIFFICULTIES[this.difficulty]?.name || 'NORMAL';
     const goldRemaining = this.tileMap?.goldPositions?.length ?? 0;
+    const sound = getSoundManager();
+    const musicIcon = sound.isMusicEnabled() ? '♪' : '♪̶';  // Music note (struck through if off)
     
     this.hudText.setText(
       `SCORE: ${this.score.toString().padStart(6, '0')}  ` +
@@ -1024,6 +1060,7 @@ export class GameScene extends Phaser.Scene {
       `LEVEL: ${this.level}  ` +
       `GOLD: ${goldRemaining}  ` +
       `SPD: ${speed}x  ` +
+      `${musicIcon}  ` +
       `[${diffName}]  ` +
       `SEED: ${this.seedCode}`
     );
@@ -1051,6 +1088,8 @@ export class GameScene extends Phaser.Scene {
   }
   
   shutdown(): void {
+    // Stop music when leaving the scene
+    getSoundManager().stopMusic();
     this.crtEffect?.destroy();
     this.touchControls?.destroy();
   }

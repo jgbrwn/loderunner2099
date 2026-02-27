@@ -1,12 +1,26 @@
+import { MusicTrack, MusicNote, midiToFrequency } from './MusicGenerator';
+
 /**
  * Procedural audio generation using Web Audio API.
- * Creates retro-futuristic sound effects without external files.
+ * Creates retro-futuristic sound effects and music without external files.
  */
 export class SoundManager {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
-  private enabled: boolean = true;
+  private sfxGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
+  private enabled: boolean = true;  // Master mute (affects both SFX and music)
+  private musicEnabled: boolean = true;  // Music-specific toggle
   private volume: number = 0.5;
+  private musicVolume: number = 0.4;  // Music slightly quieter than SFX
+  
+  // Music playback state
+  private currentTrack: MusicTrack | null = null;
+  private musicScheduledUntil: number = 0;
+  private musicStartTime: number = 0;
+  private musicPlaying: boolean = false;
+  private scheduledNodes: OscillatorNode[] = [];
+  private scheduleInterval: number | null = null;
   
   constructor() {
     this.initAudio();
@@ -15,9 +29,20 @@ export class SoundManager {
   private initAudio(): void {
     try {
       this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      
+      // Master gain
       this.masterGain = this.ctx.createGain();
       this.masterGain.connect(this.ctx.destination);
       this.masterGain.gain.value = this.volume;
+      
+      // Separate gain nodes for SFX and Music
+      this.sfxGain = this.ctx.createGain();
+      this.sfxGain.connect(this.masterGain);
+      this.sfxGain.gain.value = 1.0;
+      
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.connect(this.masterGain);
+      this.musicGain.gain.value = this.musicVolume;
     } catch (e) {
       console.warn('Web Audio API not available');
     }
@@ -39,9 +64,199 @@ export class SoundManager {
     }
   }
   
+  setMusicVolume(vol: number): void {
+    this.musicVolume = Math.max(0, Math.min(1, vol));
+    if (this.musicGain) {
+      this.musicGain.gain.value = this.musicVolume;
+    }
+  }
+  
+  /**
+   * Toggle master mute (affects both SFX and music)
+   */
   toggle(): boolean {
     this.enabled = !this.enabled;
+    if (!this.enabled) {
+      this.stopMusic();
+    }
     return this.enabled;
+  }
+  
+  /**
+   * Toggle music only (separate from master mute)
+   */
+  toggleMusic(): boolean {
+    this.musicEnabled = !this.musicEnabled;
+    if (!this.musicEnabled) {
+      this.stopMusic();
+    } else if (this.currentTrack && this.enabled) {
+      this.playMusic(this.currentTrack);
+    }
+    return this.musicEnabled;
+  }
+  
+  isMusicEnabled(): boolean {
+    return this.musicEnabled;
+  }
+  
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+  
+  // === Music Playback ===
+  
+  /**
+   * Start playing a music track (loops automatically)
+   */
+  playMusic(track: MusicTrack): void {
+    if (!this.ctx || !this.musicGain || !this.enabled || !this.musicEnabled) return;
+    
+    // Stop any existing music
+    this.stopMusic();
+    
+    this.currentTrack = track;
+    this.musicPlaying = true;
+    this.musicStartTime = this.ctx.currentTime;
+    this.musicScheduledUntil = this.musicStartTime;
+    
+    // Schedule initial notes
+    this.scheduleMusic();
+    
+    // Keep scheduling ahead
+    this.scheduleInterval = window.setInterval(() => this.scheduleMusic(), 100);
+  }
+  
+  /**
+   * Stop music playback
+   */
+  stopMusic(): void {
+    this.musicPlaying = false;
+    
+    if (this.scheduleInterval !== null) {
+      clearInterval(this.scheduleInterval);
+      this.scheduleInterval = null;
+    }
+    
+    // Stop and disconnect all scheduled nodes
+    this.scheduledNodes.forEach(node => {
+      try {
+        node.stop();
+        node.disconnect();
+      } catch (e) {
+        // Node may have already stopped
+      }
+    });
+    this.scheduledNodes = [];
+    
+    // Fade out music gain
+    if (this.musicGain && this.ctx) {
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, this.ctx.currentTime);
+      this.musicGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
+      setTimeout(() => {
+        if (this.musicGain) {
+          this.musicGain.gain.value = this.musicVolume;
+        }
+      }, 150);
+    }
+  }
+  
+  private scheduleMusic(): void {
+    if (!this.ctx || !this.currentTrack || !this.musicPlaying || !this.musicGain) return;
+    
+    const scheduleAhead = 0.5;  // Schedule 500ms ahead
+    const currentTime = this.ctx.currentTime;
+    const track = this.currentTrack;
+    
+    while (this.musicScheduledUntil < currentTime + scheduleAhead) {
+      const loopOffset = this.musicScheduledUntil - this.musicStartTime;
+      const loopTime = loopOffset % track.loopDuration;
+      const loopStart = this.musicScheduledUntil - loopTime;
+      
+      // Schedule melody notes
+      this.scheduleTrackNotes(track.melody, loopStart, loopTime, 'square', 0.5);
+      
+      // Schedule bass notes
+      this.scheduleTrackNotes(track.bass, loopStart, loopTime, 'triangle', 0.7);
+      
+      // Schedule arpeggio notes
+      this.scheduleTrackNotes(track.arpeggio, loopStart, loopTime, 'square', 0.3);
+      
+      // Move to next loop
+      this.musicScheduledUntil = loopStart + track.loopDuration;
+    }
+    
+    // Cleanup old nodes
+    this.scheduledNodes = this.scheduledNodes.filter(node => {
+      try {
+        // Check if node is still active (this is a bit hacky)
+        return node.context.currentTime < (node as any)._endTime;
+      } catch (e) {
+        return false;
+      }
+    });
+  }
+  
+  private scheduleTrackNotes(
+    notes: MusicNote[],
+    loopStart: number,
+    loopTime: number,
+    waveform: OscillatorType,
+    baseVelocity: number
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    
+    const scheduleAhead = 0.5;
+    const currentTime = this.ctx.currentTime;
+    
+    for (const note of notes) {
+      const noteTime = loopStart + note.startTime;
+      
+      // Only schedule notes that are upcoming and not already scheduled
+      if (noteTime >= currentTime && noteTime < currentTime + scheduleAhead) {
+        this.scheduleNote(
+          midiToFrequency(note.pitch),
+          noteTime,
+          note.duration,
+          note.velocity * baseVelocity,
+          waveform
+        );
+      }
+    }
+  }
+  
+  private scheduleNote(
+    frequency: number,
+    startTime: number,
+    duration: number,
+    velocity: number,
+    waveform: OscillatorType
+  ): void {
+    if (!this.ctx || !this.musicGain) return;
+    
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(this.musicGain);
+    
+    osc.type = waveform;
+    osc.frequency.value = frequency;
+    
+    // Simple envelope for retro feel
+    const attackTime = 0.01;
+    const releaseTime = 0.05;
+    
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(velocity, startTime + attackTime);
+    gain.gain.setValueAtTime(velocity, startTime + duration - releaseTime);
+    gain.gain.linearRampToValueAtTime(0, startTime + duration);
+    
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.01);
+    
+    // Store for cleanup
+    (osc as any)._endTime = startTime + duration + 0.1;
+    this.scheduledNodes.push(osc);
   }
   
   // === Sound Effects ===
@@ -53,7 +268,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'square';
     osc.frequency.setValueAtTime(200, this.ctx!.currentTime);
@@ -73,7 +288,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(80 + Math.random() * 40, this.ctx!.currentTime);
@@ -92,7 +307,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'sine';
     osc.frequency.setValueAtTime(300, this.ctx!.currentTime);
@@ -128,7 +343,7 @@ export class SoundManager {
     
     source.connect(filter);
     filter.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     gain.gain.setValueAtTime(0.4, this.ctx!.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, this.ctx!.currentTime + duration);
@@ -147,7 +362,7 @@ export class SoundManager {
       const gain = this.ctx!.createGain();
       
       osc.connect(gain);
-      gain.connect(this.masterGain!);
+      gain.connect(this.sfxGain!);
       
       osc.type = 'sine';
       osc.frequency.value = freq;
@@ -178,7 +393,7 @@ export class SoundManager {
       const gain = this.ctx!.createGain();
       
       osc.connect(gain);
-      gain.connect(this.masterGain!);
+      gain.connect(this.sfxGain!);
       
       osc.type = 'square';
       osc.frequency.value = note.freq;
@@ -199,7 +414,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(400, this.ctx!.currentTime);
@@ -219,7 +434,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'square';
     osc.frequency.setValueAtTime(200, this.ctx!.currentTime);
@@ -240,7 +455,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(60, this.ctx!.currentTime);
@@ -260,7 +475,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'sine';
     osc.frequency.setValueAtTime(440, this.ctx!.currentTime);
@@ -280,7 +495,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'square';
     osc.frequency.setValueAtTime(440, this.ctx!.currentTime);
@@ -301,7 +516,7 @@ export class SoundManager {
     const gain = this.ctx!.createGain();
     
     osc.connect(gain);
-    gain.connect(this.masterGain!);
+    gain.connect(this.sfxGain!);
     
     osc.type = 'sine';
     osc.frequency.setValueAtTime(300, this.ctx!.currentTime);
@@ -323,7 +538,7 @@ export class SoundManager {
       const gain = this.ctx!.createGain();
       
       osc.connect(gain);
-      gain.connect(this.masterGain!);
+      gain.connect(this.sfxGain!);
       
       osc.type = 'sine';
       osc.frequency.value = 800 + i * 200;
@@ -338,7 +553,7 @@ export class SoundManager {
   }
   
   private canPlay(): boolean {
-    return this.enabled && this.ctx !== null && this.masterGain !== null;
+    return this.enabled && this.ctx !== null && this.sfxGain !== null;
   }
 }
 
