@@ -242,7 +242,16 @@ export class GameScene extends Phaser.Scene {
     // Generate new level with seed + level number
     const seed = `${this.seedCode}-L${this.level}`;
     const generator = new LevelGenerator(seed, this.difficulty, this.level);
-    this.tileMap = generator.generate();
+    const levelInfo = generator.generateWithInfo();
+    this.tileMap = levelInfo.map;
+    
+    // Store enemy-assisted gold positions for visual hints
+    this.tileMap.enemyAssistedGoldPositions = levelInfo.enemyAssistedGoldPositions;
+    
+    // Log if there are enemy-assisted gold pieces
+    if (levelInfo.enemyAssistedGoldPositions.length > 0) {
+      console.log(`Level has ${levelInfo.enemyAssistedGoldPositions.length} enemy-assisted gold piece(s)`);
+    }
     
     // Initialize gold counter (only decrements when player collects)
     this.goldToCollect = this.tileMap.goldPositions.length;
@@ -425,13 +434,20 @@ export class GameScene extends Phaser.Scene {
     const px = x * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
     const py = y * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
     
+    // Check if this is enemy-assisted gold (requires enemy to collect)
+    const isEnemyAssisted = this.tileMap.isEnemyAssistedGold(x, y);
+    const textureKey = isEnemyAssisted && this.textures.exists('gold_enemy') ? 'gold_enemy' : 'gold';
+    
     let goldSprite: Phaser.GameObjects.Sprite;
     
-    if (this.textures.exists('gold')) {
+    if (this.textures.exists(textureKey)) {
+      goldSprite = this.add.sprite(px, py, textureKey);
+    } else if (this.textures.exists('gold')) {
       goldSprite = this.add.sprite(px, py, 'gold');
     } else {
       // Fallback to rectangle if texture not available
-      const rect = this.add.rectangle(px, py, 12, 12, this.theme.gold) as any;
+      const color = isEnemyAssisted ? this.theme.enemy : this.theme.gold;
+      const rect = this.add.rectangle(px, py, 12, 12, color) as any;
       rect.setDepth(5);
       this.goldSprites.set(`${x},${y}`, rect);
       return;
@@ -439,17 +455,32 @@ export class GameScene extends Phaser.Scene {
     
     goldSprite.setDepth(5);
     
-    // Add sparkle animation
-    this.tweens.add({
-      targets: goldSprite,
-      scaleX: { from: 1, to: 1.1 },
-      scaleY: { from: 1, to: 1.1 },
-      alpha: { from: 1, to: 0.8 },
-      duration: 500,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut'
-    });
+    // Add sparkle animation - enemy-assisted gold has more aggressive pulsing
+    if (isEnemyAssisted) {
+      // Pulsing "danger" animation for enemy-assisted gold
+      this.tweens.add({
+        targets: goldSprite,
+        scaleX: { from: 1, to: 1.15 },
+        scaleY: { from: 1, to: 1.15 },
+        alpha: { from: 1, to: 0.7 },
+        duration: 400,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
+    } else {
+      // Normal sparkle animation
+      this.tweens.add({
+        targets: goldSprite,
+        scaleX: { from: 1, to: 1.1 },
+        scaleY: { from: 1, to: 1.1 },
+        alpha: { from: 1, to: 0.8 },
+        duration: 500,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+      });
+    }
     
     this.goldSprites.set(`${x},${y}`, goldSprite);
   }

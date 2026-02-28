@@ -18,6 +18,10 @@ export class TileMap {
   public exitLadders: { x: number; y: number }[] = [];
   public holeDurationMultiplier: number = 1.0; // Set by difficulty
   
+  // Gold positions that require enemy assistance to collect
+  // These will be rendered with a special visual hint
+  public enemyAssistedGoldPositions: { x: number; y: number }[] = [];
+  
   constructor(width = CONFIG.GRID_WIDTH, height = CONFIG.GRID_HEIGHT) {
     this.width = width;
     this.height = height;
@@ -37,6 +41,14 @@ export class TileMap {
     this.goldPositions = [];
     this.enemyStarts = [];
     this.exitLadders = [];
+    this.enemyAssistedGoldPositions = [];
+  }
+  
+  /**
+   * Check if a gold position requires enemy assistance to collect.
+   */
+  isEnemyAssistedGold(x: number, y: number): boolean {
+    return this.enemyAssistedGoldPositions.some(g => g.x === x && g.y === y);
   }
   
   getTile(x: number, y: number): TileType {
@@ -168,6 +180,7 @@ export class TileMap {
     copy.enemyStarts = this.enemyStarts.map(e => ({ ...e }));
     copy.goldPositions = this.goldPositions.map(g => ({ ...g }));
     copy.exitLadders = this.exitLadders.map(l => ({ ...l }));
+    copy.enemyAssistedGoldPositions = this.enemyAssistedGoldPositions.map(g => ({ ...g }));
     return copy;
   }
 }

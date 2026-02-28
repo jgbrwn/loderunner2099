@@ -24,6 +24,7 @@ export class TileGraphics {
     this.generateLadderTexture(prefix + 'ladder_exit', theme.ladder, true);
     this.generatePoleTexture(prefix + 'pole', theme.pole);
     this.generateGoldTexture(prefix + 'gold', theme.gold);
+    this.generateEnemyAssistedGoldTexture(prefix + 'gold_enemy', theme.gold, theme.enemy);
     this.generateHoleTexture(prefix + 'hole');
     this.generatePlayerTextures(prefix + 'player', theme.player);
     this.generateEnemyTextures(prefix + 'enemy', theme.enemy);
@@ -436,6 +437,113 @@ export class TileGraphics {
     ctx.fillStyle = this.colorToHex(highlight);
     ctx.fillRect(chestX + 2, chestY + 2, 3, 1);
     ctx.fillRect(chestX + 2, chestY + 2, 1, 3);
+    
+    this.addTexture(key, canvas);
+  }
+  
+  /**
+   * Generate a special gold texture for enemy-assisted gold.
+   * Features a pulsing enemy-colored border/indicator that works across all themes.
+   * The visual hint is a subtle "danger" indicator showing this gold requires
+   * enemy interaction to collect.
+   */
+  private generateEnemyAssistedGoldTexture(key: string, goldColor: number, enemyColor: number): void {
+    const size = CONFIG.TILE_SIZE;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    
+    const highlight = this.lighten(goldColor, 0.6);
+    const midlight = this.lighten(goldColor, 0.35);
+    const shadow = this.darken(goldColor, 0.35);
+    const deepShadow = this.darken(goldColor, 0.5);
+    
+    // Enemy indicator colors
+    const enemyHighlight = this.lighten(enemyColor, 0.4);
+    const enemyGlow = this.blend(enemyColor, 0xffffff, 0.3);
+    
+    // Gold chest dimensions
+    const pad = 3;
+    const chestX = pad;
+    const chestY = pad + 5;
+    const chestW = size - pad * 2;
+    const chestH = size - pad * 2 - 6;
+    const lidH = 5;
+    
+    // Draw enemy-colored pulsing border/glow FIRST (behind chest)
+    // This creates a "danger zone" indicator around the gold
+    ctx.fillStyle = this.colorToHex(this.darken(enemyColor, 0.3));
+    ctx.fillRect(chestX - 2, chestY - lidH - 3, chestW + 4, chestH + lidH + 6);
+    ctx.fillStyle = this.colorToHex(enemyColor);
+    ctx.fillRect(chestX - 1, chestY - lidH - 2, chestW + 2, chestH + lidH + 4);
+    
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillRect(chestX + 2, chestY + chestH + 1, chestW - 1, 2);
+    
+    // Chest body - gradient effect
+    ctx.fillStyle = this.colorToHex(goldColor);
+    ctx.fillRect(chestX, chestY, chestW, chestH);
+    
+    // Body highlights and shadows for 3D effect
+    ctx.fillStyle = this.colorToHex(midlight);
+    ctx.fillRect(chestX, chestY, chestW, 2);
+    ctx.fillRect(chestX, chestY, 2, chestH);
+    
+    ctx.fillStyle = this.colorToHex(shadow);
+    ctx.fillRect(chestX, chestY + chestH - 2, chestW, 2);
+    ctx.fillRect(chestX + chestW - 2, chestY, 2, chestH);
+    
+    // Chest lid (curved top effect)
+    ctx.fillStyle = this.colorToHex(goldColor);
+    ctx.fillRect(chestX + 1, chestY - lidH, chestW - 2, lidH);
+    
+    // Lid curve highlight
+    ctx.fillStyle = this.colorToHex(highlight);
+    ctx.fillRect(chestX + 2, chestY - lidH, chestW - 4, 2);
+    ctx.fillRect(chestX + 3, chestY - lidH - 1, chestW - 6, 1);
+    
+    // Lid shadow edge
+    ctx.fillStyle = this.colorToHex(shadow);
+    ctx.fillRect(chestX + 1, chestY - 1, chestW - 2, 1);
+    
+    // Metal bands
+    ctx.fillStyle = this.colorToHex(deepShadow);
+    ctx.fillRect(chestX, chestY + chestH / 2 - 1, chestW, 2);
+    ctx.fillStyle = this.colorToHex(midlight);
+    ctx.fillRect(chestX, chestY + chestH / 2 - 1, chestW, 1);
+    
+    // Lock/clasp - use enemy color to indicate danger
+    const lockX = chestX + chestW / 2 - 3;
+    const lockY = chestY + 2;
+    ctx.fillStyle = this.colorToHex(this.darken(enemyColor, 0.3));
+    ctx.fillRect(lockX, lockY, 6, 6);
+    ctx.fillStyle = this.colorToHex(enemyColor);
+    ctx.fillRect(lockX + 1, lockY + 1, 4, 4);
+    ctx.fillStyle = this.colorToHex(enemyHighlight);
+    ctx.fillRect(lockX + 1, lockY + 1, 2, 2);
+    
+    // Shine sparkles
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(chestX + 3, chestY - lidH + 2, 2, 2);
+    ctx.fillRect(chestX + chestW - 6, chestY + 2, 1, 1);
+    
+    // Enemy indicator corners (small triangles/marks)
+    // These help colorblind users and add visual interest
+    ctx.fillStyle = this.colorToHex(enemyGlow);
+    // Top-left corner mark
+    ctx.fillRect(1, 1, 3, 1);
+    ctx.fillRect(1, 1, 1, 3);
+    // Top-right corner mark  
+    ctx.fillRect(size - 4, 1, 3, 1);
+    ctx.fillRect(size - 2, 1, 1, 3);
+    // Bottom-left corner mark
+    ctx.fillRect(1, size - 2, 3, 1);
+    ctx.fillRect(1, size - 4, 1, 3);
+    // Bottom-right corner mark
+    ctx.fillRect(size - 4, size - 2, 3, 1);
+    ctx.fillRect(size - 2, size - 4, 1, 3);
     
     this.addTexture(key, canvas);
   }

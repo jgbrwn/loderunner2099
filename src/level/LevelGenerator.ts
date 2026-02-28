@@ -1,7 +1,12 @@
 import { CONFIG, TileType, DIFFICULTIES, DifficultySettings } from '../config';
 import { SeededRandom } from '../utils/SeededRandom';
 import { TileMap } from './TileMap';
-import { SolvabilityChecker } from './SolvabilityChecker';
+import { SolvabilityChecker, SolvabilityResult } from './SolvabilityChecker';
+
+export interface GeneratedLevel {
+  map: TileMap;
+  enemyAssistedGoldPositions: { x: number; y: number }[];
+}
 
 export class LevelGenerator {
   private rng: SeededRandom;
@@ -10,31 +15,62 @@ export class LevelGenerator {
   private levelNumber: number;
   private difficultyKey: string;
   
+  // Last generation result for tracking enemy-assisted gold
+  private lastSolvabilityResult: SolvabilityResult | null = null;
+  
   constructor(seed: string | number, difficultyKey: string = 'normal', levelNumber: number = 1) {
     this.rng = new SeededRandom(seed);
     this.difficulty = DIFFICULTIES[difficultyKey] || DIFFICULTIES.normal;
     this.checker = new SolvabilityChecker();
+    this.checker.setDifficulty(difficultyKey);
     this.levelNumber = levelNumber;
     this.difficultyKey = difficultyKey;
+  }
+  
+  /**
+   * Get the positions of enemy-assisted gold from the last generation.
+   */
+  getEnemyAssistedGoldPositions(): { x: number; y: number }[] {
+    return this.lastSolvabilityResult?.enemyAssistedPositions || [];
+  }
+  
+  /**
+   * Generate a level with full information including enemy-assisted gold.
+   */
+  generateWithInfo(maxAttempts = 500): GeneratedLevel {
+    const map = this.generate(maxAttempts);
+    // Use positions tracked during generation, not from solvability checker
+    // The generator knows exactly which gold it placed in enemy-only spots
+    return {
+      map,
+      enemyAssistedGoldPositions: map.enemyAssistedGoldPositions
+    };
   }
   
   generate(maxAttempts = 500): TileMap {
     let bestMap: TileMap | null = null;
     let bestScore = -1;
+    let bestResult: SolvabilityResult | null = null;
     
     // Phase 1: Try to generate a fully solvable level
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const map = this.generateCandidate();
-      const { solvable, score, debug } = this.checker.checkSolvability(map);
+      const result = this.checker.checkSolvability(map);
+      const { solvable, score, debug } = result;
       
       if (solvable) {
         console.log(`Generated solvable level on attempt ${attempt + 1}`);
+        if (result.enemyAssistedGold > 0) {
+          console.log(`  -> ${result.enemyAssistedGold} enemy-assisted gold piece(s)`);
+        }
+        this.lastSolvabilityResult = result;
         return map;
       }
       
       if (score > bestScore) {
         bestScore = score;
         bestMap = map;
+        bestResult = result;
       }
       
       if (attempt < 10) {
@@ -45,6 +81,7 @@ export class LevelGenerator {
     // Phase 2: If we have a near-perfect map (all gold reachable), use it
     if (bestMap && bestScore >= 0.99) {
       console.log(`Using best candidate with score ${bestScore}`);
+      this.lastSolvabilityResult = bestResult;
       return bestMap;
     }
     
@@ -57,27 +94,35 @@ export class LevelGenerator {
       this.rng.next();
       
       const map = this.generateCandidate();
-      const { solvable, score, debug } = this.checker.checkSolvability(map);
+      const result = this.checker.checkSolvability(map);
+      const { solvable, score, debug } = result;
       
       if (solvable) {
         console.log(`Generated solvable level on retry ${retry + 1}`);
+        if (result.enemyAssistedGold > 0) {
+          console.log(`  -> ${result.enemyAssistedGold} enemy-assisted gold piece(s)`);
+        }
+        this.lastSolvabilityResult = result;
         return map;
       }
       
       if (score > bestScore) {
         bestScore = score;
         bestMap = map;
+        bestResult = result;
       }
     }
     
     // Phase 4: Accept best map if it's reasonably good (95%+ gold reachable with exit)
     if (bestMap && bestScore >= 0.95) {
       console.log(`Using best candidate with score ${bestScore} (95%+ threshold)`);
+      this.lastSolvabilityResult = bestResult;
       return bestMap;
     }
     
     // Last resort fallback - should be very rare
     console.warn(`Failed to generate solvable level after 700 attempts, using fallback (best score: ${bestScore})`);
+    this.lastSolvabilityResult = null;  // Fallback has no enemy-assisted gold
     return this.generateFallback();
   }
   
@@ -559,27 +604,76 @@ export class LevelGenerator {
     const goldCount = this.rng.range(minGold, maxGold + 1);
     
     // First, compute reachable positions from player start using BFS
-    // This ensures gold is only placed where the player can actually reach
-    const reachable = this.computeReachablePositions(map);
+    const playerReachable = this.computeReachablePositions(map);
     
-    // Collect all valid positions that are also reachable
-    const validSpots: { x: number; y: number }[] = [];
+    // For Hard/Ninja, also compute enemy-reachable positions for potential enemy-assisted gold
+    const maxEnemyAssisted = this.getMaxEnemyAssistedGold();
+    let enemyReachable: Set<string> | null = null;
+    
+    if (maxEnemyAssisted > 0) {
+      // Compute enemy spawn and reachable positions
+      const enemySpawns = this.computeEnemySpawnPositions(map);
+      enemyReachable = this.computeEnemyReachablePositions(map, enemySpawns);
+    }
+    
+    // Collect valid gold spots in two categories:
+    // 1. Player-reachable spots (preferred)
+    // 2. Enemy-only-reachable spots (for Hard/Ninja enemy-assisted gold)
+    const playerReachableSpots: { x: number; y: number }[] = [];
+    const enemyOnlySpots: { x: number; y: number }[] = [];
     
     for (let y = 1; y < map.height - 1; y++) {
       for (let x = 0; x < map.width; x++) {
-        if (this.isValidGoldSpot(map, x, y) && reachable.has(`${x},${y}`)) {
-          validSpots.push({ x, y });
+        if (!this.isValidGoldSpot(map, x, y)) continue;
+        
+        const key = `${x},${y}`;
+        if (playerReachable.has(key)) {
+          playerReachableSpots.push({ x, y });
+        } else if (enemyReachable && enemyReachable.has(key)) {
+          // This spot is enemy-reachable but NOT player-reachable
+          // Candidate for enemy-assisted gold
+          enemyOnlySpots.push({ x, y });
         }
       }
     }
     
-    this.rng.shuffle(validSpots);
+    this.rng.shuffle(playerReachableSpots);
+    this.rng.shuffle(enemyOnlySpots);
     
-    // Place gold, preferring distributed placement
+    // For Hard/Ninja debug purposes only (uncomment to debug):
+    // if (maxEnemyAssisted > 0) {
+    //   console.log(`Gold spots: ${playerReachableSpots.length} player-reachable, ${enemyOnlySpots.length} enemy-only`);
+    // }
+    
+    // Place gold in two phases:
+    // 1. Player-reachable gold (the majority)
+    // 2. For Hard/Ninja: potentially some enemy-assisted gold
     const placed: { x: number; y: number }[] = [];
     
-    for (const spot of validSpots) {
-      if (placed.length >= goldCount) break;
+    // For Hard/Ninja: decide FIRST if we want enemy-assisted gold
+    // This way we can reserve slots for it
+    let numEnemyAssisted = 0;
+    if (maxEnemyAssisted > 0 && enemyOnlySpots.length > 0) {
+      // Hard: ~40% chance of 1 enemy-assisted gold
+      // Ninja: ~60% chance, can have 1-2
+      const enemyAssistedChance = this.difficultyKey === 'ninja' ? 0.6 : 0.4;
+      
+      if (this.rng.next() < enemyAssistedChance) {
+        numEnemyAssisted = Math.min(
+          maxEnemyAssisted,
+          enemyOnlySpots.length,
+          this.difficultyKey === 'ninja' ? this.rng.range(1, 3) : 1
+        );
+        // console.log(`Planning ${numEnemyAssisted} enemy-assisted gold piece(s)`);
+      }
+    }
+    
+    // Player-reachable gold target (total minus enemy-assisted)
+    const playerGoldTarget = goldCount - numEnemyAssisted;
+    
+    // Phase 1: Place player-reachable gold with spacing
+    for (const spot of playerReachableSpots) {
+      if (placed.length >= playerGoldTarget) break;
       
       // Check distance from other gold
       const tooClose = placed.some(p => 
@@ -593,15 +687,159 @@ export class LevelGenerator {
       }
     }
     
-    // If we couldn't place enough with spacing, place remaining anywhere
-    for (const spot of validSpots) {
-      if (placed.length >= goldCount) break;
+    // Fill remaining player gold with spacing-relaxed
+    for (const spot of playerReachableSpots) {
+      if (placed.length >= playerGoldTarget) break;
       if (placed.some(p => p.x === spot.x && p.y === spot.y)) continue;
       
       map.setTile(spot.x, spot.y, TileType.GOLD);
       map.goldPositions.push(spot);
       placed.push(spot);
     }
+    
+    // Phase 2: Place enemy-assisted gold
+    let enemyAssistedPlaced = 0;
+    for (let i = 0; i < numEnemyAssisted && i < enemyOnlySpots.length; i++) {
+      const spot = enemyOnlySpots[i];
+      
+      // Check distance from other gold (slightly relaxed)
+      const tooClose = placed.some(p => 
+        Math.abs(p.x - spot.x) + Math.abs(p.y - spot.y) < 3
+      );
+      
+      if (!tooClose) {
+        map.setTile(spot.x, spot.y, TileType.GOLD);
+        map.goldPositions.push(spot);
+        placed.push(spot);
+        enemyAssistedPlaced++;
+      }
+    }
+    
+    // if (enemyAssistedPlaced > 0) {
+    //   console.log(`Placed ${enemyAssistedPlaced} enemy-assisted gold piece(s)`);
+    // }
+    
+    // Mark which gold pieces are enemy-assisted (need to track separately)
+    // These will be used for visual hints
+    // We track them in the placed array - the last enemyAssistedPlaced entries
+    if (enemyAssistedPlaced > 0) {
+      const startIdx = placed.length - enemyAssistedPlaced;
+      for (let i = startIdx; i < placed.length; i++) {
+        map.enemyAssistedGoldPositions.push(placed[i]);
+      }
+    }
+  }
+  
+  /**
+   * Get max allowed enemy-assisted gold for current difficulty
+   */
+  private getMaxEnemyAssistedGold(): number {
+    switch (this.difficultyKey) {
+      case 'hard':
+        return 1;  // Allow max 1 enemy-assisted gold
+      case 'ninja':
+        return 2;  // Allow max 1-2 enemy-assisted gold
+      default:
+        return 0;  // Easy/Normal: no enemy-assisted gold
+    }
+  }
+  
+  /**
+   * Compute all positions where enemies can spawn/respawn.
+   */
+  private computeEnemySpawnPositions(map: TileMap): { x: number; y: number }[] {
+    const spawns: { x: number; y: number }[] = [];
+    
+    // Primary spawns: top rows on ladders or empty space
+    for (let y = 0; y < 5; y++) {
+      for (let x = 0; x < map.width; x++) {
+        const tile = map.getTile(x, y);
+        if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT ||
+            tile === TileType.EMPTY || tile === TileType.POLE) {
+          spawns.push({ x, y });
+        }
+      }
+    }
+    
+    // Also include initial enemy start positions
+    for (const start of map.enemyStarts) {
+      if (!spawns.some(s => s.x === start.x && s.y === start.y)) {
+        spawns.push(start);
+      }
+    }
+    
+    return spawns;
+  }
+  
+  /**
+   * Compute all positions reachable by enemies from spawn positions.
+   */
+  private computeEnemyReachablePositions(map: TileMap, spawns: { x: number; y: number }[]): Set<string> {
+    const visited = new Set<string>();
+    const queue: { x: number; y: number }[] = [];
+    
+    for (const spawn of spawns) {
+      const key = `${spawn.x},${spawn.y}`;
+      if (!visited.has(key)) {
+        visited.add(key);
+        queue.push(spawn);
+      }
+    }
+    
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const neighbors = this.getEnemyReachableNeighbors(map, current);
+      
+      for (const next of neighbors) {
+        const key = `${next.x},${next.y}`;
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push(next);
+        }
+      }
+    }
+    
+    return visited;
+  }
+  
+  /**
+   * Get positions reachable by enemy from current position (no digging).
+   */
+  private getEnemyReachableNeighbors(map: TileMap, pos: { x: number; y: number }): { x: number; y: number }[] {
+    const neighbors: { x: number; y: number }[] = [];
+    const { x, y } = pos;
+    
+    const onLadder = map.isClimbable(x, y);
+    const onBar = map.isBar(x, y);
+    const hasSupport = onLadder || onBar || map.isSupport(x, y + 1) || y + 1 >= map.height;
+    
+    if (hasSupport) {
+      // Walk left/right
+      for (const dx of [-1, 1]) {
+        const nx = x + dx;
+        if (nx >= 0 && nx < map.width && !map.isSolid(nx, y)) {
+          // Simulate falling
+          let ny = y;
+          while (ny < map.height - 1) {
+            if (map.isClimbable(nx, ny) || map.isBar(nx, ny) || map.isSupport(nx, ny + 1)) break;
+            ny++;
+          }
+          neighbors.push({ x: nx, y: ny });
+        }
+      }
+    }
+    
+    // Climb up (must be on ladder)
+    if (onLadder && y > 0 && !map.isSolid(x, y - 1)) {
+      neighbors.push({ x, y: y - 1 });
+    }
+    
+    // Climb down
+    if ((onLadder || map.isClimbable(x, y + 1)) && y < map.height - 1 && !map.isSolid(x, y + 1)) {
+      neighbors.push({ x, y: y + 1 });
+    }
+    
+    return neighbors;
   }
   
   private isValidGoldSpot(map: TileMap, x: number, y: number): boolean {
