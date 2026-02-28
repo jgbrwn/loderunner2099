@@ -39,11 +39,17 @@ export class LevelGenerator {
    */
   generateWithInfo(maxAttempts = 500): GeneratedLevel {
     const map = this.generate(maxAttempts);
-    // Use positions tracked during generation, not from solvability checker
-    // The generator knows exactly which gold it placed in enemy-only spots
+    // Use the solvability checker's analysis which is more accurate than
+    // the generator's quick reachability estimate. The checker does thorough
+    // BFS including digging possibilities.
+    const enemyAssistedPositions = this.lastSolvabilityResult?.enemyAssistedPositions || [];
+    
+    // Update the map's tracking to match the authoritative checker result
+    map.enemyAssistedGoldPositions = enemyAssistedPositions;
+    
     return {
       map,
-      enemyAssistedGoldPositions: map.enemyAssistedGoldPositions
+      enemyAssistedGoldPositions: enemyAssistedPositions
     };
   }
   
@@ -616,10 +622,17 @@ export class LevelGenerator {
       enemyReachable = this.computeEnemyReachablePositions(map, enemySpawns);
     }
     
-    // Collect valid gold spots in two categories:
-    // 1. Player-reachable spots (preferred)
-    // 2. Enemy-only-reachable spots (for Hard/Ninja enemy-assisted gold)
-    const playerReachableSpots: { x: number; y: number }[] = [];
+    // Collect valid gold spots in categories by vertical zone:
+    // - Upper zone (rows 1-5): priority for interesting placement
+    // - Middle zone (rows 6-10): good placement
+    // - Lower zone (rows 11-13): limited placement
+    // - Ground floor (row 14 = height-2): very limited
+    const groundY = map.height - 2;
+    
+    const upperSpots: { x: number; y: number }[] = [];    // rows 1-5
+    const middleSpots: { x: number; y: number }[] = [];   // rows 6-10  
+    const lowerSpots: { x: number; y: number }[] = [];    // rows 11-13
+    const groundSpots: { x: number; y: number }[] = [];   // row 14 (ground)
     const enemyOnlySpots: { x: number; y: number }[] = [];
     
     for (let y = 1; y < map.height - 1; y++) {
@@ -628,17 +641,37 @@ export class LevelGenerator {
         
         const key = `${x},${y}`;
         if (playerReachable.has(key)) {
-          playerReachableSpots.push({ x, y });
+          // Categorize by vertical zone
+          if (y <= 5) {
+            upperSpots.push({ x, y });
+          } else if (y <= 10) {
+            middleSpots.push({ x, y });
+          } else if (y < groundY) {
+            lowerSpots.push({ x, y });
+          } else {
+            groundSpots.push({ x, y });
+          }
         } else if (enemyReachable && enemyReachable.has(key)) {
-          // This spot is enemy-reachable but NOT player-reachable
-          // Candidate for enemy-assisted gold
           enemyOnlySpots.push({ x, y });
         }
       }
     }
     
-    this.rng.shuffle(playerReachableSpots);
+    // Shuffle each zone
+    this.rng.shuffle(upperSpots);
+    this.rng.shuffle(middleSpots);
+    this.rng.shuffle(lowerSpots);
+    this.rng.shuffle(groundSpots);
     this.rng.shuffle(enemyOnlySpots);
+    
+    // Combine spots with priority: upper > middle > lower > ground
+    // This ensures vertical distribution
+    const playerReachableSpots = [
+      ...upperSpots,
+      ...middleSpots, 
+      ...lowerSpots,
+      ...groundSpots
+    ];
     
     // For Hard/Ninja debug purposes only (uncomment to debug):
     // if (maxEnemyAssisted > 0) {
@@ -671,30 +704,44 @@ export class LevelGenerator {
     // Player-reachable gold target (total minus enemy-assisted)
     const playerGoldTarget = goldCount - numEnemyAssisted;
     
+    // Track gold per vertical zone to ensure distribution
+    let groundGoldCount = 0;
+    const maxGroundGold = Math.max(2, Math.floor(goldCount / 5)); // Max ~20% on ground
+    
     // Phase 1: Place player-reachable gold with spacing
     for (const spot of playerReachableSpots) {
       if (placed.length >= playerGoldTarget) break;
       
-      // Check distance from other gold
-      const tooClose = placed.some(p => 
-        Math.abs(p.x - spot.x) + Math.abs(p.y - spot.y) < 4
-      );
+      // Limit ground floor gold
+      if (spot.y >= groundY && groundGoldCount >= maxGroundGold) continue;
+      
+      // Check distance from other gold - require more horizontal spread
+      // and some vertical separation
+      const tooClose = placed.some(p => {
+        const dx = Math.abs(p.x - spot.x);
+        const dy = Math.abs(p.y - spot.y);
+        // Require at least 3 tiles horizontal OR 2 tiles vertical separation
+        return dx < 3 && dy < 2;
+      });
       
       if (!tooClose) {
         map.setTile(spot.x, spot.y, TileType.GOLD);
         map.goldPositions.push(spot);
         placed.push(spot);
+        if (spot.y >= groundY) groundGoldCount++;
       }
     }
     
-    // Fill remaining player gold with spacing-relaxed
+    // Fill remaining player gold with spacing-relaxed (but still limit ground)
     for (const spot of playerReachableSpots) {
       if (placed.length >= playerGoldTarget) break;
       if (placed.some(p => p.x === spot.x && p.y === spot.y)) continue;
+      if (spot.y >= groundY && groundGoldCount >= maxGroundGold) continue;
       
       map.setTile(spot.x, spot.y, TileType.GOLD);
       map.goldPositions.push(spot);
       placed.push(spot);
+      if (spot.y >= groundY) groundGoldCount++;
     }
     
     // Phase 2: Place enemy-assisted gold
@@ -715,19 +762,9 @@ export class LevelGenerator {
       }
     }
     
-    // if (enemyAssistedPlaced > 0) {
-    //   console.log(`Placed ${enemyAssistedPlaced} enemy-assisted gold piece(s)`);
-    // }
-    
-    // Mark which gold pieces are enemy-assisted (need to track separately)
-    // These will be used for visual hints
-    // We track them in the placed array - the last enemyAssistedPlaced entries
-    if (enemyAssistedPlaced > 0) {
-      const startIdx = placed.length - enemyAssistedPlaced;
-      for (let i = startIdx; i < placed.length; i++) {
-        map.enemyAssistedGoldPositions.push(placed[i]);
-      }
-    }
+    // Note: We don't track enemy-assisted gold here because this placement
+    // uses a simplified reachability check. The SolvabilityChecker's analysis
+    // is authoritative and will determine actual enemy-assisted positions later.
   }
   
   /**
@@ -1091,8 +1128,39 @@ export class LevelGenerator {
       const pickIdx = this.rng.range(0, candidateCount);
       exitX = exitCandidates[pickIdx].x;
     } else {
-      // No suitable ladder found - use spine position or center
+      // No suitable ladder found - find a clear column near center
       exitX = Math.floor(map.width / 2);
+      
+      // Search for a column that's clear of poles in the exit zone
+      for (let dx = 0; dx < map.width / 2; dx++) {
+        for (const offset of [dx, -dx]) {
+          const testX = exitX + offset;
+          if (testX < 2 || testX >= map.width - 2) continue;
+          
+          let clear = true;
+          for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
+            const tile = map.getTile(testX, y);
+            if (tile === TileType.POLE || tile === TileType.BRICK ||
+                tile === TileType.BRICK_HARD || tile === TileType.BRICK_TRAP) {
+              clear = false;
+              break;
+            }
+          }
+          
+          if (clear) {
+            exitX = testX;
+            break;
+          }
+        }
+      }
+      
+      // Clear any poles in the exit path (safety measure)
+      for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
+        if (map.getTile(exitX, y) === TileType.POLE) {
+          map.setTile(exitX, y, TileType.EMPTY);
+        }
+      }
+      
       // Make sure there's a ladder leading up to the exit zone
       for (let y = EXIT_HIDDEN_ROWS; y < EXIT_HIDDEN_ROWS + 4; y++) {
         if (map.getTile(exitX, y) !== TileType.LADDER) {
