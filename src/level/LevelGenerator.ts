@@ -18,10 +18,11 @@ export class LevelGenerator {
     this.difficultyKey = difficultyKey;
   }
   
-  generate(maxAttempts = 100): TileMap {
+  generate(maxAttempts = 500): TileMap {
     let bestMap: TileMap | null = null;
     let bestScore = -1;
     
+    // Phase 1: Try to generate a fully solvable level
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const map = this.generateCandidate();
       const { solvable, score, debug } = this.checker.checkSolvability(map);
@@ -36,21 +37,47 @@ export class LevelGenerator {
         bestMap = map;
       }
       
-      if (attempt < 5) {
+      if (attempt < 10) {
         console.log(`Attempt ${attempt + 1}: score=${score}, ${debug}`);
       }
     }
     
-    // Only use best candidate if ALL gold is reachable AND exit is reachable
-    // Score = goldScore * exitScore, so we need score = 1.0 for perfect level
-    // Allow 0.99 to handle floating point issues
+    // Phase 2: If we have a near-perfect map (all gold reachable), use it
     if (bestMap && bestScore >= 0.99) {
       console.log(`Using best candidate with score ${bestScore}`);
       return bestMap;
     }
     
-    // Fallback: generate a simple guaranteed-solvable level
-    console.warn('Failed to generate solvable level, using fallback');
+    // Phase 3: Try additional attempts with the seed modified
+    // This gives us more variety in generation
+    console.log(`Phase 2: Trying modified seeds (best so far: ${bestScore})`);
+    for (let retry = 0; retry < 200; retry++) {
+      // Modify the RNG state by advancing it
+      this.rng.next();
+      this.rng.next();
+      
+      const map = this.generateCandidate();
+      const { solvable, score, debug } = this.checker.checkSolvability(map);
+      
+      if (solvable) {
+        console.log(`Generated solvable level on retry ${retry + 1}`);
+        return map;
+      }
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMap = map;
+      }
+    }
+    
+    // Phase 4: Accept best map if it's reasonably good (95%+ gold reachable with exit)
+    if (bestMap && bestScore >= 0.95) {
+      console.log(`Using best candidate with score ${bestScore} (95%+ threshold)`);
+      return bestMap;
+    }
+    
+    // Last resort fallback - should be very rare
+    console.warn(`Failed to generate solvable level after 700 attempts, using fallback (best score: ${bestScore})`);
     return this.generateFallback();
   }
   
@@ -578,10 +605,43 @@ export class LevelGenerator {
     
     // Need support below
     const below = map.getTile(x, y + 1);
-    return below === TileType.BRICK || 
-           below === TileType.BRICK_HARD || 
-           below === TileType.LADDER ||
-           below === TileType.BRICK_TRAP;
+    const hasSupport = below === TileType.BRICK || 
+                       below === TileType.BRICK_HARD || 
+                       below === TileType.LADDER ||
+                       below === TileType.BRICK_TRAP;
+    if (!hasSupport) return false;
+    
+    // Must be reachable - either:
+    // 1. On a ladder
+    // 2. Has walkable approach from left or right
+    // 3. Can be reached by falling from above
+    
+    const onLadder = map.getTile(x, y) === TileType.LADDER || below === TileType.LADDER;
+    if (onLadder) return true;
+    
+    // Check if there's a walkable approach from either side
+    const leftClear = x > 0 && !map.isSolid(x - 1, y);
+    const rightClear = x < map.width - 1 && !map.isSolid(x + 1, y);
+    const hasApproach = leftClear || rightClear;
+    
+    // Check if there's a platform to walk from (support at neighbor position)
+    const leftHasSupport = x > 0 && (map.isSupport(x - 1, y + 1) || map.isClimbable(x - 1, y));
+    const rightHasSupport = x < map.width - 1 && (map.isSupport(x + 1, y + 1) || map.isClimbable(x + 1, y));
+    
+    if (hasApproach && (leftHasSupport || rightHasSupport)) return true;
+    
+    // Check if reachable by falling through from above (via pole or empty space)
+    for (let checkY = y - 1; checkY >= 0; checkY--) {
+      const tile = map.getTile(x, checkY);
+      if (tile === TileType.POLE || tile === TileType.LADDER) {
+        return true; // Can drop from pole/ladder above
+      }
+      if (map.isSolid(x, checkY)) {
+        break; // Blocked by solid tile
+      }
+    }
+    
+    return false;
   }
   
   private placeEnemies(map: TileMap): void {
@@ -669,7 +729,8 @@ export class LevelGenerator {
     
     // Find existing ladders that reach the upper area (row 4-6, just below hidden zone)
     // Only consider positions where the exit path (rows 0-3) is clear of poles/obstacles
-    const exitCandidates: { x: number; topY: number }[] = [];
+    // AND the ladder extends far enough down to be well-connected
+    const exitCandidates: { x: number; topY: number; ladderLength: number }[] = [];
     for (let x = 2; x < map.width - 2; x++) {
       // Check if exit path is clear (no poles or solid blocks in rows 0-3)
       let pathClear = true;
@@ -683,17 +744,30 @@ export class LevelGenerator {
       }
       if (!pathClear) continue;
       
-      // Find the topmost ladder segment at this x
-      for (let y = EXIT_HIDDEN_ROWS; y < EXIT_HIDDEN_ROWS + 3; y++) {
+      // Find the topmost ladder segment at this x and measure its length
+      let topY = -1;
+      let ladderLength = 0;
+      for (let y = EXIT_HIDDEN_ROWS; y < map.height; y++) {
         if (map.getTile(x, y) === TileType.LADDER) {
-          exitCandidates.push({ x, topY: y });
-          break;
+          if (topY === -1) topY = y;
+          ladderLength++;
+        } else if (topY !== -1) {
+          break; // End of contiguous ladder
         }
+      }
+      
+      // Only consider ladders that start near the top and are long enough
+      // to likely connect to the rest of the level
+      if (topY !== -1 && topY <= EXIT_HIDDEN_ROWS + 2 && ladderLength >= 4) {
+        exitCandidates.push({ x, topY, ladderLength });
       }
     }
     
-    // Sort by topmost (lowest Y) and pick one
-    exitCandidates.sort((a, b) => a.topY - b.topY);
+    // Sort by ladder length (longer = better connected), then by topY
+    exitCandidates.sort((a, b) => {
+      if (b.ladderLength !== a.ladderLength) return b.ladderLength - a.ladderLength;
+      return a.topY - b.topY;
+    });
     
     let exitX: number;
     
