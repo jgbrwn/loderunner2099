@@ -451,10 +451,11 @@ export class Enemy {
     }
     
     if (!foundValid) {
-      console.error('CRITICAL: Could not find ANY valid spot for gold!');
-      // Last resort: just place it at original position
-      dropX = this.gridX;
-      dropY = this.gridY;
+      // Gold is permanently lost - no valid position found
+      // This matches C64 behavior where gold can be destroyed
+      console.warn('Gold lost - no valid drop position found');
+      this.scene.events.emit('goldLost', { x: this.gridX, y: this.gridY });
+      return;
     }
     
     // Drop gold at the valid position

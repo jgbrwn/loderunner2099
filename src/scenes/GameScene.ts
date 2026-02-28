@@ -209,6 +209,7 @@ export class GameScene extends Phaser.Scene {
     this.events.on('goldCollected', this.onGoldCollected, this);
     this.events.on('goldPickedUpByEnemy', this.onGoldPickedUpByEnemy, this);
     this.events.on('goldDropped', this.onGoldDropped, this);
+    this.events.on('goldLost', this.onGoldLost, this);
     this.events.on('playerDied', this.onPlayerDied, this);
     this.events.on('enemyTrapped', this.onEnemyTrapped, this);
     this.events.on('digStart', this.onDigStart, this);
@@ -896,6 +897,23 @@ export class GameScene extends Phaser.Scene {
     // Create gold sprite when enemy drops gold
     this.createGoldSprite(data.x, data.y);
     this.updateHUD();
+  }
+  
+  private onGoldLost(_data: { x: number; y: number }): void {
+    // Gold was permanently lost (enemy killed with no valid drop position)
+    // Decrement counter so player can still complete the level
+    this.goldToCollect--;
+    this.updateHUD();
+    
+    // Check if this was the last gold needed
+    if (this.goldToCollect === 0) {
+      getSoundManager().playExitAppear();
+      for (const exit of this.tileMap.exitLadders) {
+        this.tileMap.setTile(exit.x, exit.y, TileType.LADDER_EXIT);
+        this.updateTileSprite(exit.x, exit.y);
+      }
+      this.showMessage('EXIT AT TOP!', 2000);
+    }
   }
   
   private checkWinCondition(): void {

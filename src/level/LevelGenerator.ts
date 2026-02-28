@@ -105,7 +105,9 @@ export class LevelGenerator {
     const zigzag = complexity > 0.5 && this.rng.next() < complexity;
     const zigzagInterval = zigzag ? this.rng.range(3, 5) : 999;
     
-    for (let y = 0; y < map.height - 1; y++) {
+    // Start spine from row 4 (leave top rows for exit ladder only)
+    const spineStartY = 4;
+    for (let y = spineStartY; y < map.height - 1; y++) {
       map.setTile(spineX, y, TileType.LADDER);
       
       // Zigzag: shift spine left or right periodically
@@ -648,85 +650,57 @@ export class LevelGenerator {
   
   private addExitLadders(map: TileMap): void {
     // In classic Lode Runner, the exit ladder is hidden until all gold is collected.
-    // The exit ladder typically extends from the top of an existing ladder to the top row.
-    // We'll HIDE the top 3 rungs of a high ladder - they appear when gold is collected.
+    // The exit ladder extends from the top of an existing ladder to row 0.
+    // IMPORTANT: No ladder should visibly reach row 0-3 at level start.
     
-    // Find existing ladders that reach the upper area (row 0-5)
-    const exitCandidates: { x: number; topY: number }[] = [];
-    for (let x = 2; x < map.width - 2; x++) {
-      // Find where ladder starts from top going down
-      let topY = -1;
-      for (let y = 0; y < map.height; y++) {
+    const EXIT_HIDDEN_ROWS = 4; // Rows 0-3 are always hidden initially
+    
+    // First, clear any ladders that might have been placed in the top rows
+    // (they should all be hidden exit ladders)
+    for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
+      for (let x = 0; x < map.width; x++) {
         if (map.getTile(x, y) === TileType.LADDER) {
-          if (topY === -1) topY = y;
-        } else if (topY !== -1) {
-          break; // Found a gap, stop
+          map.setTile(x, y, TileType.EMPTY);
         }
       }
-      // Ladder must reach row 5 or higher (closer to top)
-      if (topY !== -1 && topY <= 5) {
-        exitCandidates.push({ x, topY });
+    }
+    
+    // Find existing ladders that reach the upper area (row 4-6, just below hidden zone)
+    const exitCandidates: { x: number; topY: number }[] = [];
+    for (let x = 2; x < map.width - 2; x++) {
+      // Find the topmost ladder segment at this x
+      for (let y = EXIT_HIDDEN_ROWS; y < EXIT_HIDDEN_ROWS + 3; y++) {
+        if (map.getTile(x, y) === TileType.LADDER) {
+          exitCandidates.push({ x, topY: y });
+          break;
+        }
       }
     }
     
     // Sort by topmost (lowest Y) and pick one
     exitCandidates.sort((a, b) => a.topY - b.topY);
     
+    let exitX: number;
+    
     if (exitCandidates.length > 0) {
       // Pick from top candidates with randomness
       const candidateCount = Math.min(3, exitCandidates.length);
       const pickIdx = this.rng.range(0, candidateCount);
-      const chosen = exitCandidates[pickIdx];
-      const x = chosen.x;
-      
-      // Hide the top portion of this ladder (rows 0 to min(3, topY+3))
-      // These will be stored and the tiles converted to EMPTY
-      const hideUntilY = Math.min(chosen.topY + 3, 5); // Hide top 3 rungs, max row 5
-      
-      for (let y = 0; y <= hideUntilY; y++) {
-        const tile = map.getTile(x, y);
-        if (tile === TileType.LADDER) {
-          // Convert to EMPTY (hidden) and store position
-          map.setTile(x, y, TileType.EMPTY);
-          map.exitLadders.push({ x, y });
-        } else if (tile === TileType.EMPTY) {
-          // Also include empty spaces that should become ladder when revealed
-          map.exitLadders.push({ x, y });
-        }
-      }
+      exitX = exitCandidates[pickIdx].x;
     } else {
-      // No suitable ladder found - create a new exit ladder from highest platform
-      let highestPlatformY = map.height;
-      let highestPlatformX = Math.floor(map.width / 2);
-      
-      for (let y = 1; y < map.height - 3; y++) {
-        for (let x = 3; x < map.width - 3; x++) {
-          if (map.getTile(x, y) === TileType.BRICK && map.getTile(x, y - 1) === TileType.EMPTY) {
-            if (y < highestPlatformY) {
-              highestPlatformY = y;
-              highestPlatformX = x;
-            }
-          }
+      // No suitable ladder found - use spine position or center
+      exitX = Math.floor(map.width / 2);
+      // Make sure there's a ladder leading up to the exit zone
+      for (let y = EXIT_HIDDEN_ROWS; y < EXIT_HIDDEN_ROWS + 4; y++) {
+        if (map.getTile(exitX, y) !== TileType.LADDER) {
+          map.setTile(exitX, y, TileType.LADDER);
         }
       }
-      
-      // Create hidden exit ladder from top to this platform (it's entirely hidden)
-      for (let y = 0; y < highestPlatformY; y++) {
-        // Leave as EMPTY - will be revealed later
-        map.exitLadders.push({ x: highestPlatformX, y });
-      }
-      
-      // Also add visible ladder going down from this platform for access
-      this.extendLadderDown(map, highestPlatformX, highestPlatformY);
     }
     
-    // Ensure we have at least one exit ladder
-    if (map.exitLadders.length === 0) {
-      // Fallback: create hidden exit ladder at column 15
-      const x = 15;
-      for (let y = 0; y < 4; y++) {
-        map.exitLadders.push({ x, y });
-      }
+    // Create hidden exit ladder from row 0 to row 3 (the hidden zone)
+    for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
+      map.exitLadders.push({ x: exitX, y });
     }
   }
   
@@ -755,15 +729,12 @@ export class LevelGenerator {
     for (let y = 6; y < 10; y++) {
       map.setTile(14, y, TileType.LADDER);
     }
-    // Add visible ladder leading up to the exit area
-    for (let y = 0; y < 6; y++) {
+    // Add visible ladder leading up to row 4 (NOT to top - exit is hidden)
+    for (let y = 4; y < 6; y++) {
       map.setTile(20, y, TileType.LADDER);
     }
-    // Hidden exit ladder above row 0 (though this is already the top)
-    // Store positions for the visible ladder that will turn into exit markers
-    for (let y = 0; y < 3; y++) {
-      // These will be revealed when all gold collected
-      // For fallback, they're already ladders so this is mostly for consistency
+    // Hidden exit ladder from row 0-3 (revealed when all gold collected)
+    for (let y = 0; y < 4; y++) {
       map.exitLadders.push({ x: 20, y });
     }
     
