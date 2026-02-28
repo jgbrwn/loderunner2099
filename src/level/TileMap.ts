@@ -83,7 +83,20 @@ export class TileMap {
   // Check if can dig at position
   canDig(x: number, y: number): boolean {
     const tile = this.getTile(x, y);
-    return tile === TileType.BRICK || tile === TileType.BRICK_TRAP;
+    if (tile !== TileType.BRICK && tile !== TileType.BRICK_TRAP) {
+      return false;
+    }
+    
+    // Can't dig brick that has a ladder directly on top (original LR behavior)
+    // Ladders are attached to the brick, digging would make them float
+    if (y > 0) {
+      const tileAbove = this.getTile(x, y - 1);
+      if (tileAbove === TileType.LADDER || tileAbove === TileType.LADDER_EXIT) {
+        return false;
+      }
+    }
+    
+    return true;
   }
   
   // Create a hole (dug brick)

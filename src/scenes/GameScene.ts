@@ -30,6 +30,7 @@ export class GameScene extends Phaser.Scene {
   private score: number = 0;
   private lives: number = 3;
   private level: number = 1;
+  private goldToCollect: number = 0; // Gold remaining for player to collect (doesn't change when enemies grab gold)
   private seedCode: string = '';
   private difficulty: string = 'normal';
   private theme: Theme = THEMES.cyber;
@@ -241,6 +242,9 @@ export class GameScene extends Phaser.Scene {
     const seed = `${this.seedCode}-L${this.level}`;
     const generator = new LevelGenerator(seed, this.difficulty, this.level);
     this.tileMap = generator.generate();
+    
+    // Initialize gold counter (only decrements when player collects)
+    this.goldToCollect = this.tileMap.goldPositions.length;
     
     // Apply difficulty's hole duration multiplier
     const difficultySettings = DIFFICULTIES[this.difficulty];
@@ -634,8 +638,8 @@ export class GameScene extends Phaser.Scene {
       }
     }
     
-    // Check win condition
-    if (this.tileMap.goldPositions.length === 0) {
+    // Check win condition (player must collect all gold)
+    if (this.goldToCollect === 0) {
       this.checkWinCondition();
     }
     
@@ -790,6 +794,7 @@ export class GameScene extends Phaser.Scene {
   
   private onGoldCollected(data: { x: number; y: number }): void {
     this.score += 100;
+    this.goldToCollect--;
     getSoundManager().playGold();
     this.updateTileSprite(data.x, data.y);
     
@@ -804,8 +809,8 @@ export class GameScene extends Phaser.Scene {
     // Check for floating gold above and make it fall
     this.checkFloatingGold(data.x, data.y - 1);
     
-    // Show exit ladders when all gold collected
-    if (this.tileMap.goldPositions.length === 0) {
+    // Show exit ladders when player has collected all gold
+    if (this.goldToCollect === 0) {
       getSoundManager().playExitAppear();
       for (const exit of this.tileMap.exitLadders) {
         this.tileMap.setTile(exit.x, exit.y, TileType.LADDER_EXIT);
@@ -1050,7 +1055,7 @@ export class GameScene extends Phaser.Scene {
   private updateHUD(): void {
     const speed = CONFIG.SPEED_MULTIPLIERS[this.speedIndex];
     const diffName = DIFFICULTIES[this.difficulty]?.name || 'NORMAL';
-    const goldRemaining = this.tileMap?.goldPositions?.length ?? 0;
+    const goldRemaining = this.goldToCollect;
     const sound = getSoundManager();
     const musicIcon = sound.isMusicEnabled() ? '♪' : '♪x';  // Music note, or crossed out if off
     
