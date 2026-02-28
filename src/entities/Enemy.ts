@@ -506,62 +506,74 @@ export class Enemy {
   }
   
   private respawn(): void {
-    // Respawn at top of level - find a valid spawn position
-    // Try to find an empty spot on a ladder or on top of a platform near the top
+    // ALWAYS respawn at row 0 (very top of level)
+    // This ensures enemies fall from the top like classic Lode Runner
+    const spawnY = 0;
     
-    let bestX = Math.floor(this.tileMap.width / 2);
-    let bestY = 0;
-    let foundValid = false;
-    
-    // First priority: find a ladder near the top
-    for (let y = 0; y < 5 && !foundValid; y++) {
-      for (let x = 0; x < this.tileMap.width; x++) {
-        const tile = this.tileMap.getTile(x, y);
-        if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT) {
-          bestX = x;
-          bestY = y;
-          foundValid = true;
-          break;
-        }
+    // Find all valid horizontal positions at row 0
+    const validPositions: number[] = [];
+    for (let x = 0; x < this.tileMap.width; x++) {
+      const tile = this.tileMap.getTile(x, spawnY);
+      // Can spawn in empty space, on ladders (including hidden exit ladders), or poles
+      if (tile === TileType.EMPTY || tile === TileType.LADDER || 
+          tile === TileType.LADDER_EXIT || tile === TileType.POLE) {
+        validPositions.push(x);
       }
     }
     
-    // Second priority: any empty space near top
-    if (!foundValid) {
-      for (let y = 0; y < this.tileMap.height && !foundValid; y++) {
-        for (let x = 0; x < this.tileMap.width; x++) {
-          const tile = this.tileMap.getTile(x, y);
-          if (tile === TileType.EMPTY || tile === TileType.POLE) {
-            bestX = x;
-            bestY = y;
-            foundValid = true;
-            break;
+    // Also check if this position is part of hidden exit ladders
+    for (const exitLadder of this.tileMap.exitLadders) {
+      if (exitLadder.y === spawnY && !validPositions.includes(exitLadder.x)) {
+        validPositions.push(exitLadder.x);
+      }
+    }
+    
+    let spawnX: number;
+    
+    // If level has enemy-assisted gold, bias spawn position toward it
+    const enemyAssistedGold = this.tileMap.enemyAssistedGoldPositions;
+    if (enemyAssistedGold.length > 0 && validPositions.length > 0) {
+      // 60% chance to spawn near/above enemy-assisted gold
+      if (Math.random() < 0.6) {
+        // Pick a random enemy-assisted gold position
+        const targetGold = enemyAssistedGold[Math.floor(Math.random() * enemyAssistedGold.length)];
+        const targetX = targetGold.x;
+        
+        // Find the closest valid spawn position to the target
+        let closestX = validPositions[0];
+        let closestDist = Math.abs(closestX - targetX);
+        
+        for (const x of validPositions) {
+          const dist = Math.abs(x - targetX);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestX = x;
           }
         }
+        
+        // Spawn at or near the closest position (add small randomness)
+        const nearbyPositions = validPositions.filter(x => Math.abs(x - closestX) <= 3);
+        spawnX = nearbyPositions[Math.floor(Math.random() * nearbyPositions.length)];
+      } else {
+        // Random spawn
+        spawnX = validPositions[Math.floor(Math.random() * validPositions.length)];
       }
+    } else if (validPositions.length > 0) {
+      // No enemy-assisted gold - random spawn among valid positions
+      spawnX = validPositions[Math.floor(Math.random() * validPositions.length)];
+    } else {
+      // Fallback: spawn at center (shouldn't happen normally)
+      spawnX = Math.floor(this.tileMap.width / 2);
     }
     
-    // Randomize horizontally among valid top-row positions
-    const validTopPositions: number[] = [];
-    for (let x = 0; x < this.tileMap.width; x++) {
-      const tile = this.tileMap.getTile(x, bestY);
-      if (!this.tileMap.isSolid(x, bestY)) {
-        validTopPositions.push(x);
-      }
-    }
-    
-    if (validTopPositions.length > 0) {
-      bestX = validTopPositions[Math.floor(Math.random() * validTopPositions.length)];
-    }
-    
-    this.gridX = bestX;
-    this.gridY = bestY;
-    this.targetX = bestX;
-    this.targetY = bestY;
+    this.gridX = spawnX;
+    this.gridY = spawnY;
+    this.targetX = spawnX;
+    this.targetY = spawnY;
     
     this.state = EnemyState.IDLE;
     this.moveProgress = 0;
-    this.hasGold = false; // Make sure we don't have gold after respawn
+    this.hasGold = false;
     this.sprite.setAlpha(1);
     this.updateSpritePosition();
   }
