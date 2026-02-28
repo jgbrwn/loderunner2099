@@ -558,12 +558,16 @@ export class LevelGenerator {
     const [minGold, maxGold] = this.difficulty.gold;
     const goldCount = this.rng.range(minGold, maxGold + 1);
     
-    // Collect all valid positions
+    // First, compute reachable positions from player start using BFS
+    // This ensures gold is only placed where the player can actually reach
+    const reachable = this.computeReachablePositions(map);
+    
+    // Collect all valid positions that are also reachable
     const validSpots: { x: number; y: number }[] = [];
     
     for (let y = 1; y < map.height - 1; y++) {
       for (let x = 0; x < map.width; x++) {
-        if (this.isValidGoldSpot(map, x, y)) {
+        if (this.isValidGoldSpot(map, x, y) && reachable.has(`${x},${y}`)) {
           validSpots.push({ x, y });
         }
       }
@@ -642,6 +646,78 @@ export class LevelGenerator {
     }
     
     return false;
+  }
+  
+  /**
+   * Compute all positions reachable from player start using BFS.
+   * This is a simplified version that doesn't consider exit ladders.
+   */
+  private computeReachablePositions(map: TileMap): Set<string> {
+    const visited = new Set<string>();
+    const queue: { x: number; y: number }[] = [map.playerStart];
+    visited.add(`${map.playerStart.x},${map.playerStart.y}`);
+    
+    while (queue.length > 0) {
+      const { x, y } = queue.shift()!;
+      
+      const onLadder = map.isClimbable(x, y);
+      const onBar = map.isBar(x, y);
+      const hasSupport = onLadder || onBar || map.isSupport(x, y + 1) || y + 1 >= map.height;
+      
+      // Walk left/right with falling
+      if (hasSupport) {
+        for (const dx of [-1, 1]) {
+          const nx = x + dx;
+          if (nx >= 0 && nx < map.width && !map.isSolid(nx, y)) {
+            // Simulate falling
+            let ny = y;
+            while (ny < map.height - 1) {
+              if (map.isClimbable(nx, ny) || map.isBar(nx, ny) || map.isSupport(nx, ny + 1)) break;
+              ny++;
+            }
+            const key = `${nx},${ny}`;
+            if (!visited.has(key)) {
+              visited.add(key);
+              queue.push({ x: nx, y: ny });
+            }
+          }
+        }
+        
+        // Dig left/right
+        for (const dx of [-1, 1]) {
+          const nx = x + dx;
+          const ny = y + 1;
+          if (map.canDig(nx, ny)) {
+            // After digging, we can reach the dug hole
+            const key = `${nx},${ny}`;
+            if (!visited.has(key)) {
+              visited.add(key);
+              queue.push({ x: nx, y: ny });
+            }
+          }
+        }
+      }
+      
+      // Climb up (must be on ladder)
+      if (onLadder && y > 0 && !map.isSolid(x, y - 1)) {
+        const key = `${x},${y - 1}`;
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push({ x, y: y - 1 });
+        }
+      }
+      
+      // Climb down
+      if ((onLadder || map.isClimbable(x, y + 1)) && y < map.height - 1 && !map.isSolid(x, y + 1)) {
+        const key = `${x},${y + 1}`;
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push({ x, y: y + 1 });
+        }
+      }
+    }
+    
+    return visited;
   }
   
   private placeEnemies(map: TileMap): void {
