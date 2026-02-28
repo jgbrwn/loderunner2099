@@ -199,9 +199,10 @@ export class Player {
       const onLadder = this.tileMap.isClimbable(this.gridX, this.gridY);
       const onBar = this.tileMap.isBar(this.gridX, this.gridY);
       
-      // Can only go up if on ladder
+      // Can only go up if CURRENTLY on a ladder (can't grab ladder above you)
+      // This matches original Lode Runner behavior
       if (dy < 0) {
-        if (!onLadder && !this.tileMap.isClimbable(newX, newY)) {
+        if (!onLadder) {
           return false;
         }
         this.state = PlayerState.CLIMBING;

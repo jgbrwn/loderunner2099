@@ -125,8 +125,9 @@ export class SolvabilityChecker {
       }
     }
     
-    // Climb up (need ladder at current or target)
-    if (onLadder || this.isClimbable(map, x, y - 1)) {
+    // Climb up - must be ON a ladder to climb up (can't grab ladder above you)
+    // This matches original Lode Runner behavior
+    if (onLadder) {
       if (this.canEnter(map, x, y - 1)) {
         neighbors.push({ x, y: y - 1 });
       }
