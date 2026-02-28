@@ -56,7 +56,12 @@ export class SoundManager {
   
   toggle(): boolean {
     this.enabled = !this.enabled;
-    if (!this.enabled) this.stopMusic();
+    if (!this.enabled) {
+      this.stopMusic();
+    } else if (this.musicEnabled && this.currentTrack) {
+      // Restart music if it was enabled before muting
+      this.playMusic(this.currentTrack);
+    }
     return this.enabled;
   }
   

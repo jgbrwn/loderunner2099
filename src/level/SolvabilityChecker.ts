@@ -59,7 +59,9 @@ export class SolvabilityChecker {
     
     const goldScore = goldReachable / map.goldPositions.length;
     const exitScore = exitReachable ? 1 : 0;
-    const score = (goldScore + exitScore) / 2;
+    // Score must require BOTH components - multiply instead of average
+    // This way, 100% gold + no exit = 0, not 0.5
+    const score = goldScore * exitScore;
     
     const solvable = goldReachable === map.goldPositions.length && exitReachable;
     const debug = `gold=${goldReachable}/${map.goldPositions.length}, exit=${exitReachable}, reachable=${reachable.size}`;

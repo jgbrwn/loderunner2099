@@ -41,8 +41,10 @@ export class LevelGenerator {
       }
     }
     
-    // Use best candidate if it's reasonably good
-    if (bestMap && bestScore >= 0.5) {
+    // Only use best candidate if ALL gold is reachable AND exit is reachable
+    // Score = goldScore * exitScore, so we need score = 1.0 for perfect level
+    // Allow 0.99 to handle floating point issues
+    if (bestMap && bestScore >= 0.99) {
       console.log(`Using best candidate with score ${bestScore}`);
       return bestMap;
     }
@@ -666,8 +668,21 @@ export class LevelGenerator {
     }
     
     // Find existing ladders that reach the upper area (row 4-6, just below hidden zone)
+    // Only consider positions where the exit path (rows 0-3) is clear of poles/obstacles
     const exitCandidates: { x: number; topY: number }[] = [];
     for (let x = 2; x < map.width - 2; x++) {
+      // Check if exit path is clear (no poles or solid blocks in rows 0-3)
+      let pathClear = true;
+      for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
+        const tile = map.getTile(x, y);
+        if (tile === TileType.POLE || tile === TileType.BRICK || 
+            tile === TileType.BRICK_HARD || tile === TileType.BRICK_TRAP) {
+          pathClear = false;
+          break;
+        }
+      }
+      if (!pathClear) continue;
+      
       // Find the topmost ladder segment at this x
       for (let y = EXIT_HIDDEN_ROWS; y < EXIT_HIDDEN_ROWS + 3; y++) {
         if (map.getTile(x, y) === TileType.LADDER) {
