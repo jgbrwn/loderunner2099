@@ -40,3 +40,4 @@ body.flash{animation:fl .25s}
  #ctl .dpad{width:min(46vw,300px);height:min(46vw,300px)}
  .acts{width:min(46vw,280px);height:min(40vw,240px)}
 }
+.mid .row{display:flex;gap:8px;justify-content:center}

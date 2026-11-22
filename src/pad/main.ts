@@ -26,6 +26,7 @@ nameIn.value = ls('lr2099.padName');
 codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.toUpperCase().replace(ALPH, '').slice(0, 4); });
 
 let ws: WebSocket | null = null;
+let autoJoin = false;
 let code = '', slot = 0, wantSlot = '1', bits = 0, active = false, retry = 0, inPlay = true;
 let retryTimer: ReturnType<typeof setTimeout> | undefined, pingAt = 0, rtt = 0;
 const lastState: Record<string, any> = {};
@@ -38,11 +39,26 @@ $('joinForm').addEventListener('submit', e => {
   if (code.length !== 4) { $('joinMsg').textContent = 'Enter the 4-character code from the TV'; return; }
   ls('lr2099.padName', nameIn.value.trim());
   history.replaceState(null, '', `${location.pathname}?code=${code}`);
-  if (!isStandalone()) document.documentElement.requestFullscreen?.().catch(() => {});
-  (screen.orientation as any)?.lock?.('landscape').catch?.(() => {});
+  goFull();
   start();
 });
-$('leave').addEventListener('click', () => stop(''));
+$('leave').addEventListener('click', () => { ls('lr2099.padCode', ''); stop(''); });
+$('switch').addEventListener('click', () => {
+  ls('lr2099.padCode', '');
+  stop('Scan the QR on the other TV, or type its code');
+  codeIn.value = '';
+  codeIn.focus();
+});
+
+// fullscreen + landscape on the first tap (also covers auto-rejoin, which has no user gesture)
+function goFull(): void {
+  if (!isStandalone() && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+  (screen.orientation as any)?.lock?.('landscape').catch?.(() => {});
+}
+document.addEventListener('pointerdown', function first() {
+  document.removeEventListener('pointerdown', first, true);
+  if (active) goFull();
+}, true);
 
 function start(): void {
   active = true; retry = 0; slot = 0;
@@ -61,15 +77,17 @@ function stop(msg: string): void {
 
 function connect(): void {
   if (!active) return;
-  const p = new URLSearchParams({ code, slot: String(slot || wantSlot), id: clientId });
+  const p = new URLSearchParams({ code, id: clientId });
+  if (slot || wantSlot) p.set('slot', String(slot || wantSlot));
   if (nameIn.value.trim()) p.set('name', nameIn.value.trim().slice(0, 24));
   const w = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/pad?${p}`);
   ws = w;
   conn('connecting…');
   w.onopen = () => { retry = 0; send({ t: 'in', b: bits }); };
   w.onmessage = ev => { try { onMsg(JSON.parse(String(ev.data))); } catch { /* ignore */ } };
-  w.onclose = () => {
+  w.onclose = ev => {
     if (ws !== w || !active) return;
+    if (ev.reason === 'kicked') { ls('lr2099.padCode', ''); stop('Disconnected by the TV'); return; }
     ws = null;
     conn('reconnecting…', true);
     retryTimer = setTimeout(connect, Math.min(5000, 300 * 2 ** retry++));
@@ -82,8 +100,15 @@ const ERRORS: Record<string, string> = {
 };
 function onMsg(m: any): void {
   switch (m.t) {
-    case 'joined': slot = m.slot; setWho(slot); tvUp(m.tv !== false); break;
-    case 'error': stop(ERRORS[m.error] ?? `Error: ${m.error}`); break;
+    case 'joined':
+      slot = m.slot; setWho(slot); tvUp(m.tv !== false);
+      ls('lr2099.padCode', code); ls('lr2099.padSlot', String(slot));
+      break;
+    case 'error':
+      if (m.error === 'slot_taken' && autoJoin) { autoJoin = false; wantSlot = ''; slot = 0; return; } // retry: first free
+      if (m.error === 'no_room') ls('lr2099.padCode', '');
+      stop(ERRORS[m.error] ?? `Error: ${m.error}`);
+      break;
     case 'tv': tvUp(!!m.up); break;
     case 'pong': rtt = Math.round(performance.now() - pingAt); tvUp(!document.body.classList.contains('tvdown')); break;
     case 'slot': slot = m.slot; setWho(slot); break;
@@ -151,5 +176,11 @@ addEventListener('blur', () => setBits(0));
 document.addEventListener('visibilitychange', () => { if (document.hidden) setBits(0); else if (active && !ws) connect(); });
 void dir;
 
-// auto-join when opened from the TV's QR code with a previously used slot
-if (codeIn.value.length === 4 && q.get('slot')) { wantSlot = q.get('slot')!; code = codeIn.value; start(); }
+// Auto-rejoin: the last TV this phone used (or an explicit ?slot=), unless the QR points at a different TV.
+const saved = ls('lr2099.padCode');
+if (!codeIn.value && saved) codeIn.value = saved;
+if (codeIn.value.length === 4 && (q.get('slot') || codeIn.value === saved)) {
+  wantSlot = q.get('slot') || ls('lr2099.padSlot') || '';
+  if (!['1', '2', 'spec'].includes(wantSlot)) wantSlot = wantSlot && Number(wantSlot) > 2 ? 'spec' : '';
+  code = codeIn.value; autoJoin = true; start();
+}

@@ -1,5 +1,5 @@
 // TV-side pairing client (protocol: docs/overhaul/PROTOCOL.md). Usage:
-//   const tv = new TVPairing();                 // connects /ws/tv (reclaims last room code from sessionStorage)
+//   const tv = new TVPairing();                 // connects /ws/tv (same code across restarts: code+token in localStorage)
 //   tv.onChange = () => draw(tv.code, tv.pads, tv.connected);   // pads: [{slot, name, player}]
 //   <img src={tv.qrImageUrl()}>  /  tv.padUrl()  // what phones should open
 //   tv.sendState({ screen: 'play', mode: 'single', level: 3, lives: 4, score: 0, gold: [0, 9] });
@@ -25,6 +25,8 @@ export interface PairingOptions {
 const MIN_HOLD_MS = 50;     // a tap shorter than this is stretched so a game frame sees it
 const STALE_MS = 3500;      // phones send state every 1 s; release everything if silent this long
 const KEY = 'lr2099.tvcode';
+const TOKEN_KEY = 'lr2099.tvtoken';
+const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
 
 export class TVPairing {
   code = '';
@@ -36,6 +38,7 @@ export class TVPairing {
   onPadMessage: (slot: number, m: any) => void = () => {};
 
   private ws: WebSocket | null = null;
+  private token = '';
   private closed = false;
   private retry = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -50,8 +53,10 @@ export class TVPairing {
   constructor(private opts: PairingOptions = {}) {
     this.input = opts.input ?? getInput().remote;
     this.WS = opts.WebSocketImpl ?? WebSocket;
-    this.storage = opts.storage !== undefined ? opts.storage : (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
+    this.storage = opts.storage !== undefined ? opts.storage : (typeof localStorage !== 'undefined' ? localStorage : null);
     this.slotToPlayer = opts.slotToPlayer ?? (s => (s === 1 ? 0 : s === 2 ? 1 : null));
+    this.token = this.storage?.getItem(TOKEN_KEY) || '';
+    if (!this.token) { this.token = newToken(); this.storage?.setItem(TOKEN_KEY, this.token); }
     this.staleIv = setInterval(() => this.checkStale(), 1000);
     this.connect();
   }
@@ -70,6 +75,25 @@ export class TVPairing {
     if (sl !== null) this.send(sl, { t: 'event', e });
   }
   kick(slot: number): void { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'kick', to: slot })); }
+  /** Disconnect every phone (they won't auto-rejoin until the user taps Rejoin). */
+  kickAll(): void { for (const p of this.pads) this.kick(p.slot); }
+  /** Drop all phones and get a fresh code (new token, so the old code is released). */
+  newCode(): void {
+    this.kickAll();
+    this.token = newToken();
+    this.storage?.setItem(TOKEN_KEY, this.token);
+    this.storage?.setItem(KEY, '');
+    this.code = '';
+    const old = this.ws;
+    this.ws = null;
+    old?.close();
+    for (const p of this.pads) this.release(p.slot);
+    this.pads = [];
+    this.connected = false;
+    this.onChange();
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.connect(), 150);
+  }
   close(): void {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
@@ -86,6 +110,7 @@ export class TVPairing {
     if (!url) url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/tv`;
     const prev = this.code || this.storage?.getItem(KEY) || '';
     if (prev) url += (url.includes('?') ? '&' : '?') + 'code=' + encodeURIComponent(prev);
+    url += (url.includes('?') ? '&' : '?') + 'token=' + this.token;
     const ws = new this.WS(url);
     this.ws = ws;
     ws.onmessage = ev => { try { this.handle(JSON.parse(String(ev.data))); } catch { /* bad frame */ } };

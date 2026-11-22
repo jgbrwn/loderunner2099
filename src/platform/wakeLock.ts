@@ -13,6 +13,7 @@ export function keepAwake(want: () => boolean): () => void {
   };
   const iv = setInterval(tick, 2000);
   document.addEventListener('visibilitychange', tick);
+  document.addEventListener('pointerdown', tick, true); // some browsers need a user gesture
   tick();
-  return () => { clearInterval(iv); document.removeEventListener('visibilitychange', tick); lock?.release?.(); lock = null; };
+  return () => { clearInterval(iv); document.removeEventListener('visibilitychange', tick); document.removeEventListener('pointerdown', tick, true); lock?.release?.(); lock = null; };
 }
