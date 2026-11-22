@@ -449,11 +449,17 @@ export class World {
       }
     } else {
       if (g.carryTimer > 0) g.carryTimer--;
-      if (g.carryTimer <= 0 && this.canDrop(g.cx, g.cy)) {
+      let dx: number | null = null;
+      if (g.carryTimer <= 0) {
+        if (this.canDrop(g.cx, g.cy)) dx = g.cx;
+        // stuck (e.g. no route to a player) while standing where it can't drop: put the gold down beside it
+        else if (g.mode === 'idle') dx = [g.cx - 1, g.cx + 1].find(x => x >= 0 && x < this.width && this.canDrop(x, g.cy)) ?? null;
+      }
+      if (dx !== null) {
         const gold = this.golds[g.carry];
-        gold.carriedBy = -1; gold.x = g.cx; gold.y = g.cy;
-        g.carry = -1; g.noPickX = g.cx; g.noPickY = g.cy;
-        this.emit({ t: 'goldDrop', g: g.id, x: g.cx, y: g.cy });
+        gold.carriedBy = -1; gold.x = dx; gold.y = g.cy;
+        g.carry = -1; g.noPickX = dx; g.noPickY = g.cy;
+        this.emit({ t: 'goldDrop', g: g.id, x: dx, y: g.cy });
       }
     }
   }
