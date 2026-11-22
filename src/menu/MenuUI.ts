@@ -26,7 +26,7 @@ body.lr-menu-open #touch-ui,body.lr-menu-open #touch-opts{visibility:hidden!impo
 #lr-menu{position:fixed;inset:0;z-index:25;display:flex;flex-direction:column;align-items:center;color:#d8ffff;
  font-family:'Courier New',monospace;user-select:none;-webkit-user-select:none;overflow:hidden;
  padding:max(2vh,env(safe-area-inset-top)) max(3vw,env(safe-area-inset-right)) max(2vh,env(safe-area-inset-bottom)) max(3vw,env(safe-area-inset-left));
- background:radial-gradient(ellipse at 50% 45%,rgba(5,1,15,.35),rgba(5,1,15,.88) 75%);animation:lrmIn .35s ease-out}
+ background:radial-gradient(ellipse at 50% 45%,rgba(5,1,15,.62),rgba(5,1,15,.9) 70%);animation:lrmIn .35s ease-out}
 @keyframes lrmIn{from{opacity:0}to{opacity:1}}
 #lr-menu .logo{text-align:center;line-height:1;margin:1vh 0 2vh;flex:none}
 #lr-menu .l1{display:block;font-size:clamp(28px,7.5vmin,76px);font-weight:900;letter-spacing:.08em;color:#e8ffff;
@@ -42,7 +42,7 @@ body.lr-menu-open #touch-ui,body.lr-menu-open #touch-opts{visibility:hidden!impo
 #lr-menu .ttl{text-align:center;font-size:clamp(16px,3vmin,26px);letter-spacing:.3em;color:#ff7ef0;margin-bottom:1.2vh;text-shadow:0 0 10px #f0f}
 #lr-menu .it{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;margin:5px 0;padding:6px 16px;
  font-size:clamp(16px,3.2vmin,26px);letter-spacing:.12em;border:1px solid rgba(0,255,255,.18);border-radius:6px;
- background:rgba(8,4,30,.55);cursor:pointer;transition:background .12s,border-color .12s,transform .12s,box-shadow .12s}
+ background:rgba(8,4,30,.82);backdrop-filter:blur(2px);cursor:pointer;transition:background .12s,border-color .12s,transform .12s,box-shadow .12s}
 #lr-menu .it.f{border-color:#0ff;background:rgba(0,90,110,.45);color:#fff;transform:scale(1.03);
  box-shadow:0 0 12px rgba(0,255,255,.55),inset 0 0 14px rgba(0,255,255,.25);text-shadow:0 0 8px #0ff}
 #lr-menu .it.f::before{content:'▶';color:#ff2bd6;margin-right:-4px;text-shadow:0 0 8px #f0f}
