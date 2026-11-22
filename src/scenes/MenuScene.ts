@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG, THEMES, DIFFICULTIES } from '../config';
 import { generateSeedCode } from '../utils/SeededRandom';
 import { getSoundManager } from '../audio/SoundManager';
+import { getInput } from '../input/InputManager';
 import { getHighScores } from '../systems/HighScores';
 
 // Global state for seed reset
@@ -10,8 +11,8 @@ import { getHighScores } from '../systems/HighScores';
 export class MenuScene extends Phaser.Scene {
   private selectedDifficulty: number = 1; // 0=easy, 1=normal, 2=hard, 3=ninja
   private difficultyKeys = ['easy', 'normal', 'hard', 'ninja'];
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private enterKey!: Phaser.Input.Keyboard.Key;
+  private starting = false;
+  private players = 1;
   private difficultyTexts: Phaser.GameObjects.Text[] = [];
   private seedInput: string = '';
   private seedText!: Phaser.GameObjects.Text;
@@ -23,6 +24,10 @@ export class MenuScene extends Phaser.Scene {
   }
   
   create(): void {
+    // Scene instances are reused: reset per-run state (stale destroyed Texts here froze the old game loop).
+    this.starting = false;
+    this.difficultyTexts = [];
+    this.shareNotice = null;
     const theme = THEMES.cyber;
     this.cameras.main.setBackgroundColor(theme.background);
     
@@ -149,10 +154,12 @@ export class MenuScene extends Phaser.Scene {
     });
     instructions.setOrigin(0.5);
     
-    // Input
-    this.cursors = this.input.keyboard!.createCursorKeys();
-    this.enterKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
-    const spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    // Input: keyboard arrows/Enter/Space, gamepads, TV remotes and phone pads via InputManager.
+    // Letter keys are reserved for typing the seed here.
+    const im = getInput();
+    if (im.keyboard) im.keyboard.letters = false;
+    this.events.once('shutdown', () => { if (im.keyboard) im.keyboard.letters = true; });
+    getSoundManager().playMenuMusic?.();
     
     // Keyboard input for seed
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
@@ -170,7 +177,6 @@ export class MenuScene extends Phaser.Scene {
       }
     });
     
-    spaceKey.on('down', () => this.startGame());
     
     this.updateDifficultyDisplay();
     
@@ -179,15 +185,12 @@ export class MenuScene extends Phaser.Scene {
   }
   
   update(): void {
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
-      this.selectDifficulty(Math.max(0, this.selectedDifficulty - 1));
-    }
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.down)) {
-      this.selectDifficulty(Math.min(3, this.selectedDifficulty + 1));
-    }
-    if (Phaser.Input.Keyboard.JustDown(this.enterKey)) {
-      this.startGame();
-    }
+    const im = getInput();
+    im.update();
+    if (this.starting) return;
+    if (im.anyJustPressed('up')) this.selectDifficulty(Math.max(0, this.selectedDifficulty - 1));
+    if (im.anyJustPressed('down')) this.selectDifficulty(Math.min(3, this.selectedDifficulty + 1));
+    if (im.anyJustPressed('confirm') || im.anyJustPressed('digLeft') || im.anyJustPressed('pause')) this.startGame();
   }
   
   private selectDifficulty(index: number): void {
@@ -235,11 +238,14 @@ export class MenuScene extends Phaser.Scene {
   }
   
   private startGame(): void {
+    if (this.starting) return;
+    this.starting = true;
     getSoundManager().playMenuConfirm();
     const seed = this.seedInput.length > 0 ? this.seedInput : generateSeedCode();
     this.scene.start('GameScene', {
       difficulty: this.difficultyKeys[this.selectedDifficulty],
-      seed: seed
+      seed: seed,
+      players: this.players,
     });
   }
   
@@ -255,6 +261,7 @@ export class MenuScene extends Phaser.Scene {
       this.updateSeedDisplay();
     }
     
+    this.players = params.get('p') === '2' ? 2 : 1;
     const diff = params.get('diff');
     if (diff && this.difficultyKeys.includes(diff)) {
       const index = this.difficultyKeys.indexOf(diff);
