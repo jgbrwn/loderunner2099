@@ -120,3 +120,18 @@ Rough guesses: P1 $5–7 · P2 $5–7 · P3 $5–6 · P4 $3–4 · P5 $3 · P6 $
 3. Enemy-assisted gold: make deterministic, or drop?
 4. Phone controller: single player, or eventually 2-player co-op on TV?
 5. Radio Paradise only on the TV idle screen, or also as optional in-game music?
+
+---
+
+## Follow-up: trap bricks true to the original (planned, not done)
+Original: a trap ("false") brick looks like brick but is **not solid at all** — runners and guards can walk into it
+from the side and fall through it from above; it can't be dug and isn't support. Ours currently blocks sideways
+movement (solver and sim agree on that rule). To switch:
+1. **Sim** (`src/sim`): treat `BRICK_TRAP` like `EMPTY` for movement/support everywhere (players + guard AI path
+   scans); not diggable. Render as brick until something passes through, then show it as revealed (faint outline).
+2. **Solver** (`src/level/SolvabilityChecker.ts` / `MoveGraph`): `canEnter` allows trap cells; side-entry creates a
+   fall edge. Same for guard reachability (affects enemy-assisted gold proofs and `goldDropCells`).
+3. **Generator**: keep trap "gotchas" but let the solver veto placements that create death pits; never use a trap as
+   the only floor of a required route unless the fall leads somewhere useful.
+4. Tests: sim test for side-entry + fall; rerun `tools/levelstats` (must stay 100% solvable, 0 fallbacks) and check
+   guard-assisted gold delivery on generated levels. Est. cost ≈ $1–1.5.
