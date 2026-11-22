@@ -4,11 +4,10 @@ import { TileMap } from '../level/TileMap';
 import { LevelGenerator } from '../level/LevelGenerator';
 import { TileGraphics } from '../graphics/TileGraphics';
 import { CRTEffect } from '../graphics/CRTEffect';
-import { TouchControls } from '../ui/TouchControls';
 import { generateSeedCode } from '../utils/SeededRandom';
 import { getSoundManager } from '../audio/SoundManager';
 import { getHighScores } from '../systems/HighScores';
-import { getInput, StateSource } from '../input/InputManager';
+import { getInput } from '../input/InputManager';
 import { World } from '../sim/World';
 import { TICK_MS, DIG_TICKS, HOLE_WARN_TICKS, type SimEvent, type SimInput, type Actor } from '../sim/types';
 
@@ -29,7 +28,6 @@ export class GameScene extends Phaser.Scene {
   private digGfx!: Phaser.GameObjects.Graphics;
   private tileGraphics!: TileGraphics;
   private crtEffect!: CRTEffect;
-  private touchControls!: TouchControls;
   private removeTouch: (() => void) | null = null;
 
   private score = 0;
@@ -111,11 +109,7 @@ export class GameScene extends Phaser.Scene {
     this.crtEffect = new CRTEffect(this);
     if (!this.theme.scanlines) this.crtEffect.setIntensity(0.3);
 
-    this.touchControls = new TouchControls(this);
-    const tc = this.touchControls;
-    this.removeTouch = input.addSource(new StateSource(0, () => ({
-      left: tc.left, right: tc.right, up: tc.up, down: tc.down, digLeft: tc.digLeft, digRight: tc.digRight,
-    })));
+    // touch input: global DOM overlay (src/ui/TouchOverlay.ts), registered in main.ts
 
     this.newLevel();
     this.updateShareURL();
@@ -124,7 +118,6 @@ export class GameScene extends Phaser.Scene {
   private cleanup(): void {
     this.removeTouch?.();
     this.removeTouch = null;
-    this.touchControls?.destroy();
     this.crtEffect?.destroy();
     this.messageTimer = null;
     const sm = getSoundManager();
