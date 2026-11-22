@@ -21,6 +21,10 @@ export class TileMap {
   // Gold positions that require enemy assistance to collect
   // These will be rendered with a special visual hint
   public enemyAssistedGoldPositions: { x: number; y: number }[] = [];
+  /** Guard spawn cells (row 0) directly above each enemy-assisted gold (also in enemyStarts). */
+  public enemyAssistedSpawns: { x: number; y: number }[] = [];
+  /** Player-safe cells where a guard may drop carried gold (in the player's final SCC). */
+  public goldDropCells: { x: number; y: number }[] = [];
   
   constructor(width = CONFIG.GRID_WIDTH, height = CONFIG.GRID_HEIGHT) {
     this.width = width;
@@ -42,6 +46,12 @@ export class TileMap {
     this.enemyStarts = [];
     this.exitLadders = [];
     this.enemyAssistedGoldPositions = [];
+    this.enemyAssistedSpawns = [];
+    this.goldDropCells = [];
+  }
+
+  isGoldDropCell(x: number, y: number): boolean {
+    return this.goldDropCells.some(g => g.x === x && g.y === y);
   }
   
   /**
@@ -181,6 +191,9 @@ export class TileMap {
     copy.goldPositions = this.goldPositions.map(g => ({ ...g }));
     copy.exitLadders = this.exitLadders.map(l => ({ ...l }));
     copy.enemyAssistedGoldPositions = this.enemyAssistedGoldPositions.map(g => ({ ...g }));
+    copy.enemyAssistedSpawns = this.enemyAssistedSpawns.map(g => ({ ...g }));
+    copy.goldDropCells = this.goldDropCells.map(g => ({ ...g }));
+    copy.holeDurationMultiplier = this.holeDurationMultiplier;
     return copy;
   }
 }

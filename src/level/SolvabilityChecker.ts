@@ -1,10 +1,23 @@
 import { TileType } from '../config';
 import { TileMap } from './TileMap';
 
-interface Position {
-  x: number;
-  y: number;
-}
+/**
+ * Level solver v2 (classic Lode Runner movement model).
+ *
+ * Nodes: one per grid cell ("static" cell) plus one "in a freshly dug hole" node per cell.
+ * Edges: walk L/R (when supported / on ladder / on pole), climb up (on ladder), climb/drop down,
+ * fall (unsupported), dig L/R (then drop into the hole), and a 2-layer trench macro
+ * (dig x+d, step back, dig x, drop, dig x+d one row lower, drop).
+ * A hole node with no outgoing edge is a death trap (hole refills on the player).
+ *
+ * Solvable iff the gold SCCs (Tarjan condensation) form a chain reachable from the start and the
+ * exit (row 0, exit ladders enabled) is reachable from the last gold's SCC.
+ * Enemy-assisted gold: gold the player can't reach, sitting under open sky (guard respawns at
+ * (x,0) and falls onto it) from where a guard (no digging) can walk to >=2 "drop cells" in the
+ * terminal SCC (the SCC the player finishes in).
+ */
+
+export interface Position { x: number; y: number; }
 
 export interface SolvabilityResult {
   solvable: boolean;
@@ -13,520 +26,328 @@ export interface SolvabilityResult {
   directGold: number;
   enemyAssistedGold: number;
   unreachableGold: number;
-  enemyAssistedPositions: Position[];  // For visual hints
+  enemyAssistedPositions: Position[];
+  analysis?: LevelAnalysis;
 }
 
+export interface LevelAnalysis {
+  W: number; H: number;
+  /** player-reachable from start (static cells + hole nodes at index N+i) */
+  reach: Uint8Array;
+  /** player-reachable without any digging */
+  reachNoDig: Uint8Array;
+  comp: Int32Array;
+  startComp: number;
+  terminalComp: number;
+  /** cells from which row 0 is reachable once exit ladders are shown */
+  canExit: Uint8Array;
+  /** player-safe cells where carried gold may be dropped (in terminal SCC, can exit) */
+  dropCells: Position[];
+  digRequiredGold: number;
+  deathTrapHoles: number;
+  oneWayCells: number;
+  mainSize: number;
+  tourLength: number;
+}
+
+const DIG = 1;
+const MAXE = 8;
+
+export class MoveGraph {
+  readonly W: number; readonly H: number; readonly N: number;
+  readonly cnt: Uint8Array;
+  readonly to: Int16Array;
+  readonly kind: Uint8Array;
+  deathTrapHoles = 0;
+  private t: Uint8Array;
+  private built = new Set<number>();
+
+  constructor(map: TileMap, exitEnabled: boolean) {
+    const W = (this.W = map.width), H = (this.H = map.height), N = (this.N = W * H);
+    const t = (this.t = new Uint8Array(N));
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let v = map.tiles[y][x];
+      if (v === TileType.HOLE) v = TileType.BRICK;
+      t[y * W + x] = v;
+    }
+    if (exitEnabled) for (const e of map.exitLadders) t[e.y * W + e.x] = TileType.LADDER;
+    this.cnt = new Uint8Array(2 * N);
+    this.to = new Int16Array(2 * N * MAXE);
+    this.kind = new Uint8Array(2 * N * MAXE);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) this.buildCell(x, y);
+  }
+
+  tile(x: number, y: number): number {
+    if (x < 0 || x >= this.W || y < 0 || y >= this.H) return TileType.BRICK_HARD;
+    return this.t[y * this.W + x];
+  }
+  /** blocks horizontal entry / climbing into */
+  solid(x: number, y: number): boolean {
+    const v = this.tile(x, y);
+    return v === TileType.BRICK || v === TileType.BRICK_HARD || v === TileType.BRICK_TRAP;
+  }
+  ladder(x: number, y: number): boolean {
+    const v = this.tile(x, y);
+    return v === TileType.LADDER || v === TileType.LADDER_EXIT;
+  }
+  /** something to stand on below (x,y) */
+  supportBelow(x: number, y: number): boolean {
+    const v = this.tile(x, y + 1);
+    return v === TileType.BRICK || v === TileType.BRICK_HARD || v === TileType.LADDER || v === TileType.LADDER_EXIT;
+  }
+  stable(x: number, y: number): boolean {
+    return this.ladder(x, y) || this.tile(x, y) === TileType.POLE || this.supportBelow(x, y);
+  }
+
+  private add(from: number, to: number, kind: number): void {
+    const c = this.cnt[from];
+    for (let k = 0; k < c; k++) if (this.to[from * MAXE + k] === to) return;
+    if (c >= MAXE) return;
+    this.to[from * MAXE + c] = to;
+    this.kind[from * MAXE + c] = kind;
+    this.cnt[from] = c + 1;
+  }
+
+  private buildCell(x: number, y: number): void {
+    const W = this.W, H = this.H, i = y * W + x, v = this.tile(x, y);
+    if (v === TileType.BRICK || v === TileType.BRICK_HARD) return;
+    if (!this.stable(x, y)) {
+      if (y + 1 < H) this.add(i, i + W, 0);
+      return;
+    }
+    if (x > 0 && !this.solid(x - 1, y)) this.add(i, i - 1, 0);
+    if (x < W - 1 && !this.solid(x + 1, y)) this.add(i, i + 1, 0);
+    if (y > 0 && this.ladder(x, y) && !this.solid(x, y - 1)) this.add(i, i - W, 0);
+    if (y + 1 < H) {
+      const b = this.tile(x, y + 1);
+      if (this.ladder(x, y + 1)) this.add(i, i + W, 0);
+      else if ((this.ladder(x, y) || v === TileType.POLE) && b !== TileType.BRICK && b !== TileType.BRICK_HARD) this.add(i, i + W, 0);
+    }
+    // digging: must be standing on something (not hanging)
+    if (v === TileType.POLE || !this.supportBelow(x, y)) return;
+    for (const d of [-1, 1]) {
+      const tx = x + d, ty = y + 1;
+      if (tx < 0 || tx >= W || ty >= H) continue;
+      if (this.tile(tx, ty) !== TileType.BRICK || this.tile(tx, y) !== TileType.EMPTY) continue;
+      this.add(i, this.holeNode(tx, ty), DIG);
+      // 2-layer trench: step back to x-d, dig (x,y+1), drop in, dig (x+d,y+2), drop in
+      const bx = x - d;
+      if (ty + 1 < H && v === TileType.EMPTY && this.tile(x, ty) === TileType.BRICK &&
+          bx >= 0 && bx < W && !this.solid(bx, y) && this.tile(bx, y) !== TileType.POLE && this.supportBelow(bx, y)) {
+        const under = this.tile(x, ty + 1);
+        if ((under === TileType.BRICK || under === TileType.BRICK_HARD) && this.tile(tx, ty + 1) === TileType.BRICK) {
+          this.add(i, this.holeNode(tx, ty + 1), DIG);
+        }
+      }
+    }
+  }
+
+  /** Node for "player just dropped into a dug hole at (hx,hy)"; builds its edges lazily. */
+  private holeNode(hx: number, hy: number): number {
+    const W = this.W, n = this.N + hy * W + hx;
+    if (this.built.has(n)) return n;
+    this.built.add(n);
+    if (!this.supportBelow(hx, hy)) {
+      if (hy + 1 < this.H) this.add(n, n - this.N + W, 0);
+    } else {
+      if (hx > 0 && !this.solid(hx - 1, hy)) this.add(n, n - this.N - 1, 0);
+      if (hx < W - 1 && !this.solid(hx + 1, hy)) this.add(n, n - this.N + 1, 0);
+      if (this.cnt[n] === 0) this.deathTrapHoles++;
+    }
+    return n;
+  }
+
+  bfs(sources: number[], noDig = false, out?: Uint8Array, dist?: Int16Array): Uint8Array {
+    const seen = out ?? new Uint8Array(2 * this.N);
+    const q = new Int16Array(2 * this.N);
+    let h = 0, tl = 0;
+    for (const s of sources) if (!seen[s]) { seen[s] = 1; q[tl++] = s; if (dist) dist[s] = 0; }
+    while (h < tl) {
+      const u = q[h++], c = this.cnt[u];
+      for (let k = 0; k < c; k++) {
+        if (noDig && this.kind[u * MAXE + k] === DIG) continue;
+        const w = this.to[u * MAXE + k];
+        if (!seen[w]) { seen[w] = 1; q[tl++] = w; if (dist) dist[w] = dist[u] + 1; }
+      }
+    }
+    return seen;
+  }
+
+  /** Tarjan SCC (iterative). Component ids are in reverse topological order (sinks first). */
+  scc(): Int32Array {
+    const M = 2 * this.N;
+    const index = new Int32Array(M).fill(-1), low = new Int32Array(M), comp = new Int32Array(M).fill(-1);
+    const stack: number[] = [], onStack = new Uint8Array(M);
+    const cs: number[] = [], ks: number[] = [];
+    let idx = 0, nc = 0;
+    for (let s = 0; s < M; s++) {
+      if (index[s] !== -1) continue;
+      cs.push(s); ks.push(0); index[s] = low[s] = idx++; stack.push(s); onStack[s] = 1;
+      while (cs.length) {
+        const u = cs[cs.length - 1], k = ks[ks.length - 1];
+        if (k < this.cnt[u]) {
+          ks[ks.length - 1] = k + 1;
+          const w = this.to[u * MAXE + k];
+          if (index[w] === -1) {
+            index[w] = low[w] = idx++; stack.push(w); onStack[w] = 1; cs.push(w); ks.push(0);
+          } else if (onStack[w] && index[w] < low[u]) low[u] = index[w];
+        } else {
+          cs.pop(); ks.pop();
+          if (cs.length) { const p = cs[cs.length - 1]; if (low[u] < low[p]) low[p] = low[u]; }
+          if (low[u] === index[u]) {
+            let w: number;
+            do { w = stack.pop()!; onStack[w] = 0; comp[w] = nc; } while (w !== u);
+            nc++;
+          }
+        }
+      }
+    }
+    return comp;
+  }
+}
+
+export function maxEnemyAssistedGold(difficultyKey: string): number {
+  return ({ easy: 0, normal: 1, hard: 2, ninja: 3 } as Record<string, number>)[difficultyKey] ?? 0;
+}
+
+/**
+ * Full analysis. `assisted` = gold positions the caller declares enemy-assisted (they are
+ * validated); if undefined, unreachable gold that qualifies is auto-classified as assisted.
+ */
+export function analyzeLevel(map: TileMap, assisted?: Position[], maxAssisted = 3): SolvabilityResult {
+  const W = map.width, H = map.height, N = W * H;
+  const g = new MoveGraph(map, false);
+  const start = map.playerStart.y * W + map.playerStart.x;
+  const reach = g.bfs([start]);
+  const reachNoDig = g.bfs([start], true);
+  const comp = g.scc();
+  const startComp = comp[start];
+
+  const golds: Position[] = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (map.tiles[y][x] === TileType.GOLD) golds.push({ x, y });
+  const isDeclared = (p: Position) => !!assisted && assisted.some(a => a.x === p.x && a.y === p.y);
+
+  const direct: Position[] = [], other: Position[] = [];
+  for (const p of golds) {
+    if (!isDeclared(p) && reach[p.y * W + p.x]) direct.push(p); else other.push(p);
+  }
+  // chain gold SCCs in topological order (higher comp id = earlier)
+  const comps = [...new Set(direct.map(p => comp[p.y * W + p.x]))].sort((a, b) => b - a);
+  let chainOk = true, broken = 0;
+  let prev = startComp;
+  const firstNodeOf = new Map<number, number>();
+  for (const p of direct) { const c = comp[p.y * W + p.x]; if (!firstNodeOf.has(c)) firstNodeOf.set(c, p.y * W + p.x); }
+  let prevNode = start;
+  for (const c of comps) {
+    if (c !== prev) {
+      const r = g.bfs([prevNode]);
+      if (!r[firstNodeOf.get(c)!]) { chainOk = false; broken++; continue; }
+    }
+    prev = c; prevNode = firstNodeOf.get(c)!;
+  }
+  const terminalComp = prev;
+
+  // exit reachability (reverse BFS on G2 from row 0)
+  const g2 = new MoveGraph(map, true);
+  const canExit = reverseReach(g2, Array.from({ length: W }, (_, x) => x));
+  const lastCells: number[] = [];
+  for (let i = 0; i < N; i++) if (comp[i] === terminalComp && reach[i]) lastCells.push(i);
+  const terminalGold = direct.filter(p => comp[p.y * W + p.x] === terminalComp).map(p => p.y * W + p.x);
+  const exitFrom = terminalGold.length ? terminalGold : [start];
+  const exitOk = exitFrom.some(i => canExit[i]);
+
+  // drop cells: empty standing cells in terminal comp that can exit
+  const dropCells: Position[] = [];
+  const dropMask = new Uint8Array(N);
+  for (const i of lastCells) {
+    const x = i % W, y = (i / W) | 0;
+    if (y < 1 || map.tiles[y][x] !== TileType.EMPTY || !canExit[i]) continue;
+    const b = g.tile(x, y + 1);
+    if (b !== TileType.BRICK && b !== TileType.BRICK_HARD) continue;
+    dropCells.push({ x, y }); dropMask[i] = 1;
+  }
+
+  // enemy-assisted classification
+  const assistedOk: Position[] = [];
+  let unreachable = 0;
+  for (const p of other) {
+    if (assistedOk.length < maxAssisted && isAssistable(map, g, p, dropMask)) assistedOk.push(p);
+    else unreachable++;
+  }
+  const solvable = chainOk && exitOk && unreachable === 0 && golds.length > 0;
+
+  // metrics
+  let digReq = 0;
+  for (const p of direct) if (!reachNoDig[p.y * W + p.x]) digReq++;
+  let mainSize = 0, oneWay = 0;
+  for (let i = 0; i < N; i++) if (reach[i]) { if (comp[i] === startComp) mainSize++; else if (!canExit[i]) oneWay++; }
+  const tourLength = solvable ? tour(g, start, direct.map(p => p.y * W + p.x)) : 0;
+
+  const total = golds.length || 1;
+  const score = (direct.length + assistedOk.length) / total * (exitOk ? 1 : 0.5) * (chainOk ? 1 : 0.8);
+  return {
+    solvable, score,
+    debug: `gold=${golds.length} direct=${direct.length} assisted=${assistedOk.length} unreach=${unreachable} chain=${chainOk ? 'ok' : 'broken:' + broken} exit=${exitOk}`,
+    directGold: direct.length, enemyAssistedGold: assistedOk.length, unreachableGold: unreachable,
+    enemyAssistedPositions: assistedOk,
+    analysis: {
+      W, H, reach, reachNoDig, comp, startComp, terminalComp, canExit, dropCells,
+      digRequiredGold: digReq, deathTrapHoles: g.deathTrapHoles, oneWayCells: oneWay, mainSize, tourLength,
+    },
+  };
+}
+
+function reverseReach(g: MoveGraph, targets: number[]): Uint8Array {
+  const M = 2 * g.N;
+  // build reverse adjacency (CSR)
+  const deg = new Int32Array(M + 1);
+  for (let u = 0; u < M; u++) for (let k = 0; k < g.cnt[u]; k++) deg[g.to[u * MAXE + k] + 1]++;
+  for (let i = 0; i < M; i++) deg[i + 1] += deg[i];
+  const fill = deg.slice(), rev = new Int32Array(deg[M]);
+  for (let u = 0; u < M; u++) for (let k = 0; k < g.cnt[u]; k++) rev[fill[g.to[u * MAXE + k]]++] = u;
+  const seen = new Uint8Array(M), q = new Int32Array(M);
+  let h = 0, tl = 0;
+  for (const s of targets) if (!seen[s]) { seen[s] = 1; q[tl++] = s; }
+  while (h < tl) {
+    const v = q[h++];
+    for (let j = deg[v]; j < deg[v + 1]; j++) { const u = rev[j]; if (!seen[u]) { seen[u] = 1; q[tl++] = u; } }
+  }
+  return seen;
+}
+
+/** Guard falls from (x,0) onto the gold, then walks (no digging) to >=2 drop cells. */
+export function isAssistable(map: TileMap, g: MoveGraph, p: Position, dropMask: Uint8Array): boolean {
+  for (let y = 0; y < p.y; y++) if (map.tiles[y][p.x] !== TileType.EMPTY) return false;
+  if (!g.supportBelow(p.x, p.y)) return false;
+  const r = g.bfs([p.y * g.W + p.x], true);
+  let n = 0;
+  for (let i = 0; i < g.N; i++) if (r[i] && dropMask[i]) n++;
+  return n >= 2;
+}
+
+/** Greedy nearest-neighbour tour length start -> all gold (BFS steps). */
+function tour(g: MoveGraph, start: number, golds: number[]): number {
+  const left = new Set(golds);
+  let cur = start, total = 0;
+  const dist = new Int16Array(2 * g.N);
+  while (left.size) {
+    dist.fill(-1);
+    g.bfs([cur], false, undefined, dist);
+    let best = -1, bd = 1e9;
+    for (const q of left) if (dist[q] >= 0 && dist[q] < bd) { bd = dist[q]; best = q; }
+    if (best < 0) break;
+    total += bd; left.delete(best); cur = best;
+  }
+  return total;
+}
+
+/** Backward-compatible wrapper. */
 export class SolvabilityChecker {
-  // Set of exit ladder positions (treated as climbable during solvability check)
-  private exitLadderPositions: Set<string> = new Set();
-  
-  // Whether to include exit ladders in reachability (used for exit check only)
-  private includeExitLadders: boolean = false;
-  
-  // Difficulty key for determining enemy-assisted gold limits
-  private difficultyKey: string = 'normal';
-  
-  /**
-   * Set the difficulty for enemy-assisted gold limits
-   */
-  setDifficulty(key: string): void {
-    this.difficultyKey = key;
-  }
-  
-  /**
-   * Get max allowed enemy-assisted gold for current difficulty
-   */
-  private getMaxEnemyAssistedGold(): number {
-    switch (this.difficultyKey) {
-      case 'easy':
-      case 'normal':
-        return 0;  // Strict: all gold must be player-reachable
-      case 'hard':
-        return 1;  // Allow max 1 enemy-assisted gold
-      case 'ninja':
-        return 2;  // Allow max 1-2 enemy-assisted gold
-      default:
-        return 0;
-    }
-  }
-  
-  /**
-   * Check if a level is solvable and return detailed info.
-   */
+  private difficultyKey = 'normal';
+  setDifficulty(key: string): void { this.difficultyKey = key; }
   checkSolvability(map: TileMap): SolvabilityResult {
-    // Build set of exit ladder positions for quick lookup
-    this.exitLadderPositions = new Set(map.exitLadders.map(e => `${e.x},${e.y}`));
-    
-    // Quick checks
-    if (map.goldPositions.length === 0) {
-      return { 
-        solvable: false, 
-        score: 0, 
-        debug: 'no gold',
-        directGold: 0,
-        enemyAssistedGold: 0,
-        unreachableGold: 0,
-        enemyAssistedPositions: []
-      };
-    }
-    if (map.exitLadders.length === 0) {
-      return { 
-        solvable: false, 
-        score: 0, 
-        debug: 'no exit ladders',
-        directGold: 0,
-        enemyAssistedGold: 0,
-        unreachableGold: 0,
-        enemyAssistedPositions: []
-      };
-    }
-    
-    // Build reachability from player start WITHOUT exit ladders
-    // (exit ladders only appear after all gold is collected)
-    this.includeExitLadders = false;
-    const playerReachable = this.findAllReachable(map, map.playerStart);
-    
-    // Compute enemy spawn positions and enemy-reachable areas
-    const enemySpawnPositions = this.computeEnemySpawnPositions(map);
-    const enemyReachable = this.computeEnemyReachablePositions(map, enemySpawnPositions);
-    
-    // Categorize gold
-    let directGold = 0;
-    let enemyAssistedGold = 0;
-    let unreachableGold = 0;
-    const enemyAssistedPositions: Position[] = [];
-    
-    for (const gold of map.goldPositions) {
-      const key = `${gold.x},${gold.y}`;
-      if (playerReachable.has(key)) {
-        directGold++;
-      } else if (enemyReachable.has(key) && 
-                 this.canEnemyDeliverGold(map, gold, playerReachable, enemyReachable)) {
-        enemyAssistedGold++;
-        enemyAssistedPositions.push({ x: gold.x, y: gold.y });
-      } else {
-        unreachableGold++;
-      }
-    }
-    
-    // Now build reachability WITH exit ladders (for checking if exit is reachable)
-    this.includeExitLadders = true;
-    const reachableWithExit = this.findAllReachable(map, map.playerStart);
-    
-    // Check exit reachability - need to reach row 0 on an exit ladder column
-    let exitReachable = false;
-    const exitColumns = new Set(map.exitLadders.map(e => e.x));
-    
-    for (const col of exitColumns) {
-      // Check if row 0 of this column is reachable (with exit ladders enabled)
-      const key = `${col},0`;
-      if (reachableWithExit.has(key)) {
-        exitReachable = true;
-        break;
-      }
-      // Or check if any exit ladder tile in this column is reachable
-      for (const exit of map.exitLadders.filter(e => e.x === col)) {
-        const exitKey = `${exit.x},${exit.y}`;
-        if (reachableWithExit.has(exitKey)) {
-          exitReachable = true;
-          break;
-        }
-      }
-    }
-    
-    const totalGold = map.goldPositions.length;
-    const collectableGold = directGold + enemyAssistedGold;
-    const goldScore = collectableGold / totalGold;
-    const exitScore = exitReachable ? 1 : 0;
-    // Score must require BOTH components - multiply instead of average
-    const score = goldScore * exitScore;
-    
-    // Check if level is solvable based on difficulty limits
-    const maxEnemyAssisted = this.getMaxEnemyAssistedGold();
-    const allGoldCollectable = collectableGold === totalGold;
-    const enemyAssistedWithinLimit = enemyAssistedGold <= maxEnemyAssisted;
-    
-    const solvable = allGoldCollectable && enemyAssistedWithinLimit && exitReachable;
-    const debug = `gold=${directGold}+${enemyAssistedGold}/${totalGold}, exit=${exitReachable}, limit=${maxEnemyAssisted}`;
-    
-    return { 
-      solvable, 
-      score, 
-      debug, 
-      directGold,
-      enemyAssistedGold,
-      unreachableGold,
-      enemyAssistedPositions
-    };
+    const declared = map.enemyAssistedGoldPositions.length ? map.enemyAssistedGoldPositions : undefined;
+    return analyzeLevel(map, declared, maxEnemyAssistedGold(this.difficultyKey));
   }
-  
-  /**
-   * Simple check wrapper for compatibility.
-   */
-  isSolvable(map: TileMap): boolean {
-    return this.checkSolvability(map).solvable;
-  }
-  
-  /**
-   * Compute all positions where enemies can spawn/respawn.
-   * Enemies respawn at the top of the level, preferring ladders.
-   */
-  private computeEnemySpawnPositions(map: TileMap): Position[] {
-    const spawns: Position[] = [];
-    
-    // Primary spawns: top rows on ladders or empty space
-    for (let y = 0; y < 5; y++) {
-      for (let x = 0; x < map.width; x++) {
-        const tile = map.getTile(x, y);
-        if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT ||
-            tile === TileType.EMPTY || tile === TileType.POLE) {
-          spawns.push({ x, y });
-        }
-      }
-    }
-    
-    // Also include initial enemy start positions
-    for (const start of map.enemyStarts) {
-      if (!spawns.some(s => s.x === start.x && s.y === start.y)) {
-        spawns.push(start);
-      }
-    }
-    
-    return spawns;
-  }
-  
-  /**
-   * Compute all positions reachable by enemies from spawn positions.
-   * Enemies use similar movement rules but can't dig.
-   */
-  private computeEnemyReachablePositions(map: TileMap, spawns: Position[]): Set<string> {
-    const visited = new Set<string>();
-    const queue: Position[] = [];
-    
-    // Start from all spawn positions
-    for (const spawn of spawns) {
-      const key = `${spawn.x},${spawn.y}`;
-      if (!visited.has(key)) {
-        visited.add(key);
-        queue.push(spawn);
-      }
-    }
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors = this.getEnemyReachableNeighbors(map, current);
-      
-      for (const next of neighbors) {
-        const key = `${next.x},${next.y}`;
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push(next);
-        }
-      }
-    }
-    
-    return visited;
-  }
-  
-  /**
-   * Get positions reachable by enemy from current position.
-   * Enemies can walk, climb, fall, but NOT dig.
-   */
-  private getEnemyReachableNeighbors(map: TileMap, pos: Position): Position[] {
-    const neighbors: Position[] = [];
-    const { x, y } = pos;
-    
-    const onLadder = map.isClimbable(x, y);
-    const onBar = map.isBar(x, y);
-    const hasSupport = this.hasEnemySupport(map, x, y);
-    
-    const canMove = onLadder || onBar || hasSupport;
-    
-    if (canMove) {
-      // Walk left
-      if (this.canEnemyEnter(map, x - 1, y)) {
-        this.addEnemyFallDestination(map, x - 1, y, neighbors);
-      }
-      // Walk right
-      if (this.canEnemyEnter(map, x + 1, y)) {
-        this.addEnemyFallDestination(map, x + 1, y, neighbors);
-      }
-    }
-    
-    // Climb up - must be ON a ladder
-    if (onLadder) {
-      if (this.canEnemyEnter(map, x, y - 1)) {
-        neighbors.push({ x, y: y - 1 });
-      }
-    }
-    
-    // Climb down
-    if (onLadder || map.isClimbable(x, y + 1)) {
-      if (this.canEnemyEnter(map, x, y + 1)) {
-        neighbors.push({ x, y: y + 1 });
-      }
-    }
-    
-    // NOTE: Enemies can NOT dig, so no dig-based reachability
-    
-    return neighbors;
-  }
-  
-  private hasEnemySupport(map: TileMap, x: number, y: number): boolean {
-    if (map.isClimbable(x, y)) return true;
-    if (map.isBar(x, y)) return true;
-    if (y + 1 >= map.height) return true;
-    return map.isSupport(x, y + 1);
-  }
-  
-  private canEnemyEnter(map: TileMap, x: number, y: number): boolean {
-    if (x < 0 || x >= map.width || y < 0 || y >= map.height) {
-      return false;
-    }
-    const tile = map.getTile(x, y);
-    // Can enter if not solid brick
-    return tile !== TileType.BRICK && 
-           tile !== TileType.BRICK_HARD && 
-           tile !== TileType.BRICK_TRAP;
-  }
-  
-  private addEnemyFallDestination(map: TileMap, x: number, y: number, neighbors: Position[]): void {
-    // Simulate falling
-    while (y < map.height - 1) {
-      if (map.isClimbable(x, y)) break;
-      if (map.isBar(x, y)) break;
-      if (map.isSupport(x, y + 1)) break;
-      if (map.isSolid(x, y + 1)) break;
-      y++;
-    }
-    
-    neighbors.push({ x, y });
-  }
-  
-  /**
-   * Check if an enemy can pick up gold at a position and deliver it to player-reachable area.
-   * 
-   * For gold to be deliverable:
-   * 1. Enemy must be able to reach the gold position
-   * 2. After picking up gold, enemy must be able to reach a player-reachable area
-   * 3. When enemy dies in player-reachable area, gold drops there
-   * 
-   * Risks addressed:
-   * - Enemy must be able to escape after picking up gold (not get stuck)
-   * - There must be intersection between enemy path and player-reachable areas
-   */
-  private canEnemyDeliverGold(
-    map: TileMap, 
-    goldPos: Position, 
-    playerReachable: Set<string>,
-    enemyReachable: Set<string>
-  ): boolean {
-    // Enemy must be able to reach the gold
-    const goldKey = `${goldPos.x},${goldPos.y}`;
-    if (!enemyReachable.has(goldKey)) {
-      return false;
-    }
-    
-    // After enemy picks up gold, they chase the player.
-    // The gold will be dropped when:
-    // 1. Enemy falls into a hole dug by player (in player-reachable area)
-    // 2. Enemy dies and respawns (gold drops at death location)
-    // 
-    // For delivery to work, there must be positions that are:
-    // - Reachable by enemy FROM the gold position
-    // - Also reachable by player (so player can collect dropped gold)
-    
-    // Compute what enemy can reach starting from gold position
-    const enemyPathFromGold = this.findAllEnemyReachable(map, goldPos);
-    
-    // Check if enemy can reach ANY player-reachable position
-    // This is the "delivery zone" where gold can be transferred
-    let hasDeliveryPath = false;
-    for (const playerKey of playerReachable) {
-      if (enemyPathFromGold.has(playerKey)) {
-        hasDeliveryPath = true;
-        break;
-      }
-    }
-    
-    if (!hasDeliveryPath) {
-      return false;
-    }
-    
-    // Additional safety check: enemy must not be in a "trap" position
-    // where they can reach the gold but can't escape back out.
-    // This is already handled by the above check - if enemy can reach
-    // player-reachable area from gold, they can "escape" to there.
-    
-    // Verify enemy can actually escape from gold area (not stuck in dead-end)
-    // Count how many player-reachable tiles enemy can reach from gold
-    let deliveryTileCount = 0;
-    for (const playerKey of playerReachable) {
-      if (enemyPathFromGold.has(playerKey)) {
-        deliveryTileCount++;
-        // If we have multiple delivery options, that's good enough
-        if (deliveryTileCount >= 3) break;
-      }
-    }
-    
-    // Require at least a few tiles of overlap for reliable delivery
-    // This prevents edge cases where there's only 1 tiny connection point
-    return deliveryTileCount >= 2;
-  }
-  
-  /**
-   * Find all positions reachable by enemy from a specific start position.
-   */
-  private findAllEnemyReachable(map: TileMap, start: Position): Set<string> {
-    const visited = new Set<string>();
-    const queue: Position[] = [start];
-    visited.add(`${start.x},${start.y}`);
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors = this.getEnemyReachableNeighbors(map, current);
-      
-      for (const next of neighbors) {
-        const key = `${next.x},${next.y}`;
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push(next);
-        }
-      }
-    }
-    
-    return visited;
-  }
-  
-  /**
-   * Find all positions reachable from start using BFS.
-   */
-  private findAllReachable(map: TileMap, start: Position): Set<string> {
-    const visited = new Set<string>();
-    const queue: Position[] = [start];
-    visited.add(`${start.x},${start.y}`);
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors = this.getReachableNeighbors(map, current);
-      
-      for (const next of neighbors) {
-        const key = `${next.x},${next.y}`;
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push(next);
-        }
-      }
-    }
-    
-    return visited;
-  }
-  
-  /**
-   * Get all positions reachable from current position.
-   */
-  private getReachableNeighbors(map: TileMap, pos: Position): Position[] {
-    const neighbors: Position[] = [];
-    const { x, y } = pos;
-    
-    const onLadder = this.isClimbable(map, x, y);
-    const onBar = map.isBar(x, y);
-    const hasSupport = this.hasSupport(map, x, y);
-    
-    // Can move if: on ladder, on bar, or has support below
-    const canMove = onLadder || onBar || hasSupport;
-    
-    if (canMove) {
-      // Walk left
-      if (this.canEnter(map, x - 1, y)) {
-        this.addFallDestination(map, x - 1, y, neighbors);
-      }
-      // Walk right
-      if (this.canEnter(map, x + 1, y)) {
-        this.addFallDestination(map, x + 1, y, neighbors);
-      }
-    }
-    
-    // Climb up - must be ON a ladder to climb up (can't grab ladder above you)
-    // This matches original Lode Runner behavior
-    if (onLadder) {
-      if (this.canEnter(map, x, y - 1)) {
-        neighbors.push({ x, y: y - 1 });
-      }
-    }
-    
-    // Climb down (need ladder at current or target)
-    if (onLadder || this.isClimbable(map, x, y + 1)) {
-      if (this.canEnter(map, x, y + 1)) {
-        neighbors.push({ x, y: y + 1 });
-      }
-    }
-    
-    // Dig left (if there's a diggable brick below-left, we can dig and move there)
-    if (canMove && map.canDig(x - 1, y + 1)) {
-      // After digging, we can walk left and fall into the hole, then potentially continue
-      this.addFallDestination(map, x - 1, y + 1, neighbors);
-    }
-    
-    // Dig right
-    if (canMove && map.canDig(x + 1, y + 1)) {
-      this.addFallDestination(map, x + 1, y + 1, neighbors);
-    }
-    
-    return neighbors;
-  }
-  
-  /**
-   * Check if position is climbable (optionally including hidden exit ladders)
-   */
-  private isClimbable(map: TileMap, x: number, y: number): boolean {
-    if (map.isClimbable(x, y)) return true;
-    // Only treat exit ladders as climbable when checking exit reachability
-    // (they don't exist when collecting gold)
-    if (this.includeExitLadders) {
-      return this.exitLadderPositions.has(`${x},${y}`);
-    }
-    return false;
-  }
-  
-  private hasSupport(map: TileMap, x: number, y: number): boolean {
-    if (this.isClimbable(map, x, y)) return true;
-    if (map.isBar(x, y)) return true;
-    if (y + 1 >= map.height) return true;
-    // Exit ladders count as support only when we're checking exit reachability
-    if (this.includeExitLadders && this.exitLadderPositions.has(`${x},${y + 1}`)) return true;
-    return map.isSupport(x, y + 1);
-  }
-  
-  private canEnter(map: TileMap, x: number, y: number): boolean {
-    if (x < 0 || x >= map.width || y < 0 || y >= map.height) {
-      return false;
-    }
-    const tile = map.getTile(x, y);
-    // Can enter if not solid brick
-    return tile !== TileType.BRICK && 
-           tile !== TileType.BRICK_HARD && 
-           tile !== TileType.BRICK_TRAP;
-  }
-  
-  /**
-   * Add the position where we'd end up after falling.
-   */
-  private addFallDestination(map: TileMap, x: number, y: number, neighbors: Position[]): void {
-    // Simulate falling
-    while (y < map.height - 1) {
-      // Stop if on ladder (including hidden exit ladders)
-      if (this.isClimbable(map, x, y)) break;
-      // Stop if on bar
-      if (map.isBar(x, y)) break;
-      // Stop if support below
-      if (map.isSupport(x, y + 1)) break;
-      // Stop if solid below (shouldn't happen but safety check)
-      if (map.isSolid(x, y + 1)) break;
-      
-      y++;
-    }
-    
-    neighbors.push({ x, y });
-  }
+  isSolvable(map: TileMap): boolean { return this.checkSolvability(map).solvable; }
 }

@@ -1,1236 +1,395 @@
-import { CONFIG, TileType, DIFFICULTIES, DifficultySettings } from '../config';
+import { TileType, DIFFICULTIES, DifficultySettings } from '../config';
 import { SeededRandom } from '../utils/SeededRandom';
 import { TileMap } from './TileMap';
-import { SolvabilityChecker, SolvabilityResult } from './SolvabilityChecker';
+import { SolvabilityResult, analyzeLevel, maxEnemyAssistedGold, MoveGraph } from './SolvabilityChecker';
+
+/**
+ * Level generator v2: constructive layout from classic idioms (brick floors with gaps, ladders
+ * flush with floors, gap/hanging poles, dig-in vaults, trap bricks, sky ledges for
+ * enemy-assisted gold), a connectivity repair pass driven by the solver's SCCs, then
+ * best-of-N selection by a deterministic fun score. Everything derives from the seed.
+ */
 
 export interface GeneratedLevel {
   map: TileMap;
   enemyAssistedGoldPositions: { x: number; y: number }[];
+  stats?: LevelStats;
 }
+
+export interface LevelStats {
+  attempts: number;
+  valid: number;
+  fallback: 0 | 1 | 2; // 0 = normal, 1 = simplified retry, 2 = fixed layout
+  score: number;
+  gold: number;
+  assisted: number;
+  digRequiredGold: number;
+  tourLength: number;
+  deathTrapHoles: number;
+  oneWayCells: number;
+  ladders: number;
+  enemies: number;
+}
+
+export const GENERATOR_VERSION = 2;
+const T = TileType;
+type P = { x: number; y: number };
+
+interface Params { c: number; ld: number; trap: number; assisted: number; }
 
 export class LevelGenerator {
   private rng: SeededRandom;
   private difficulty: DifficultySettings;
-  private checker: SolvabilityChecker;
   private levelNumber: number;
   private difficultyKey: string;
-  
-  // Last generation result for tracking enemy-assisted gold
-  private lastSolvabilityResult: SolvabilityResult | null = null;
-  
+  private lastResult: SolvabilityResult | null = null;
+  public lastStats: LevelStats | null = null;
+
   constructor(seed: string | number, difficultyKey: string = 'normal', levelNumber: number = 1) {
     this.rng = new SeededRandom(seed);
     this.difficulty = DIFFICULTIES[difficultyKey] || DIFFICULTIES.normal;
-    this.checker = new SolvabilityChecker();
-    this.checker.setDifficulty(difficultyKey);
     this.levelNumber = levelNumber;
-    this.difficultyKey = difficultyKey;
+    this.difficultyKey = DIFFICULTIES[difficultyKey] ? difficultyKey : 'normal';
   }
-  
-  /**
-   * Get the positions of enemy-assisted gold from the last generation.
-   */
-  getEnemyAssistedGoldPositions(): { x: number; y: number }[] {
-    return this.lastSolvabilityResult?.enemyAssistedPositions || [];
+
+  getEnemyAssistedGoldPositions(): P[] {
+    return this.lastResult?.enemyAssistedPositions || [];
   }
-  
-  /**
-   * Generate a level with full information including enemy-assisted gold.
-   */
-  generateWithInfo(maxAttempts = 500): GeneratedLevel {
-    const map = this.generate(maxAttempts);
-    // Use the solvability checker's analysis which is more accurate than
-    // the generator's quick reachability estimate. The checker does thorough
-    // BFS including digging possibilities.
-    const enemyAssistedPositions = this.lastSolvabilityResult?.enemyAssistedPositions || [];
-    
-    // Update the map's tracking to match the authoritative checker result
-    map.enemyAssistedGoldPositions = enemyAssistedPositions;
-    
-    return {
-      map,
-      enemyAssistedGoldPositions: enemyAssistedPositions
+
+  generateWithInfo(candidates = 6): GeneratedLevel {
+    const map = this.generate(candidates);
+    return { map, enemyAssistedGoldPositions: map.enemyAssistedGoldPositions, stats: this.lastStats ?? undefined };
+  }
+
+  /** `candidates` = number of valid candidates to compare (best-of-N). */
+  generate(candidates = 6): TileMap {
+    if (candidates > 50) candidates = 6; // old API passed maxAttempts=500
+    const d = this.difficulty, L = this.levelNumber - 1;
+    const maxA = maxEnemyAssistedGold(this.difficultyKey);
+    const params: Params = {
+      c: Math.min(1, d.complexity + L * 0.015),
+      ld: Math.max(0.15, d.ladderDensity - L * 0.01),
+      trap: d.trapBrickChance,
+      assisted: maxA,
     };
-  }
-  
-  generate(maxAttempts = 500): TileMap {
-    let bestMap: TileMap | null = null;
-    let bestScore = -1;
-    let bestResult: SolvabilityResult | null = null;
-    
-    // Phase 1: Try to generate a fully solvable level
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const map = this.generateCandidate();
-      const result = this.checker.checkSolvability(map);
-      const { solvable, score, debug } = result;
-      
-      if (solvable) {
-        console.log(`Generated solvable level on attempt ${attempt + 1}`);
-        if (result.enemyAssistedGold > 0) {
-          console.log(`  -> ${result.enemyAssistedGold} enemy-assisted gold piece(s)`);
-        }
-        this.lastSolvabilityResult = result;
-        return map;
-      }
-      
-      if (score > bestScore) {
-        bestScore = score;
-        bestMap = map;
-        bestResult = result;
-      }
-      
-      if (attempt < 10) {
-        console.log(`Attempt ${attempt + 1}: score=${score}, ${debug}`);
+    let best: { map: TileMap; res: SolvabilityResult; score: number } | null = null;
+    let attempts = 0, valid = 0;
+    for (; attempts < 60 && valid < candidates; attempts++) {
+      const want = this.rng.chance(0.25 + 0.25 * maxA) ? this.rng.range(1, maxA + 1) : 0;
+      const r = this.candidate({ ...params, assisted: maxA ? want : 0 });
+      if (!r) continue;
+      valid++;
+      const s = this.funScore(r.map, r.res, want);
+      if (!best || s > best.score) best = { ...r, score: s };
+    }
+    let fallback: 0 | 1 | 2 = 0;
+    if (!best) {
+      fallback = 1;
+      for (let i = 0; i < 40 && !best; i++, attempts++) {
+        const r = this.candidate({ c: 0.2, ld: 1, trap: 0, assisted: 0 });
+        if (r) best = { ...r, score: 0 };
       }
     }
-    
-    // Phase 2: If we have a near-perfect map (all gold reachable), use it
-    if (bestMap && bestScore >= 0.99) {
-      console.log(`Using best candidate with score ${bestScore}`);
-      this.lastSolvabilityResult = bestResult;
-      return bestMap;
+    if (!best) {
+      fallback = 2;
+      const map = this.fixedFallback();
+      best = { map, res: analyzeLevel(map, [], 0), score: 0 };
     }
-    
-    // Phase 3: Try additional attempts with the seed modified
-    // This gives us more variety in generation
-    console.log(`Phase 2: Trying modified seeds (best so far: ${bestScore})`);
-    for (let retry = 0; retry < 200; retry++) {
-      // Modify the RNG state by advancing it
-      this.rng.next();
-      this.rng.next();
-      
-      const map = this.generateCandidate();
-      const result = this.checker.checkSolvability(map);
-      const { solvable, score, debug } = result;
-      
-      if (solvable) {
-        console.log(`Generated solvable level on retry ${retry + 1}`);
-        if (result.enemyAssistedGold > 0) {
-          console.log(`  -> ${result.enemyAssistedGold} enemy-assisted gold piece(s)`);
-        }
-        this.lastSolvabilityResult = result;
-        return map;
-      }
-      
-      if (score > bestScore) {
-        bestScore = score;
-        bestMap = map;
-        bestResult = result;
-      }
+    const { map, res } = best;
+    this.lastResult = res;
+    const a = res.analysis!;
+    let ladders = 0;
+    for (let x = 0; x < map.width; x++) for (let y = 0; y < map.height; y++) {
+      if (map.tiles[y][x] === T.LADDER && (y === 0 || map.tiles[y - 1][x] !== T.LADDER)) ladders++;
     }
-    
-    // Phase 4: Accept best map if it's reasonably good (95%+ gold reachable with exit)
-    if (bestMap && bestScore >= 0.95) {
-      console.log(`Using best candidate with score ${bestScore} (95%+ threshold)`);
-      this.lastSolvabilityResult = bestResult;
-      return bestMap;
-    }
-    
-    // Last resort fallback - should be very rare
-    console.warn(`Failed to generate solvable level after 700 attempts, using fallback (best score: ${bestScore})`);
-    this.lastSolvabilityResult = null;  // Fallback has no enemy-assisted gold
-    return this.generateFallback();
-  }
-  
-  private generateCandidate(): TileMap {
-    const map = new TileMap();
-    
-    // Step 1: Create ground floor
-    this.createGround(map);
-    
-    // Step 2: Create a main vertical "spine" ladder first
-    this.createMainSpine(map);
-    
-    // Step 3: Create platforms with guaranteed connectivity
-    this.createConnectedPlatforms(map);
-    
-    // Step 4: Add additional ladders
-    this.addExtraLadders(map);
-    
-    // Step 5: Add poles/bars
-    this.createPoles(map);
-    
-    // Step 6: Add some hard bricks (but not blocking ladders)
-    this.addHardBricks(map);
-    
-    // Step 7: Convert some bricks to trap bricks
-    this.addTrapBricks(map);
-    
-    // Step 8: Ensure ladders are accessible (clear blocking bricks)
-    this.ensureLadderAccessibility(map);
-    
-    // Step 9: Place player start (bottom area)
-    this.placePlayer(map);
-    
-    // Step 10: Place gold (only in reachable spots)
-    this.placeGold(map);
-    
-    // Step 11: Place enemies
-    this.placeEnemies(map);
-    
-    // Step 12: Add exit ladders at top (using existing ladders)
-    this.addExitLadders(map);
-    
+    this.lastStats = {
+      attempts, valid, fallback, score: best.score, gold: map.goldPositions.length,
+      assisted: res.enemyAssistedGold, digRequiredGold: a.digRequiredGold, tourLength: a.tourLength,
+      deathTrapHoles: a.deathTrapHoles, oneWayCells: a.oneWayCells, ladders, enemies: map.enemyStarts.length,
+    };
     return map;
   }
-  
-  private createMainSpine(map: TileMap): void {
-    // Create a main ladder that goes from bottom to near-top
-    // This guarantees basic vertical connectivity
-    // For harder difficulties, make the spine less direct (zigzag)
-    const complexity = this.difficulty.complexity ?? 0.6;
-    let spineX = this.rng.range(Math.floor(map.width * 0.25), Math.floor(map.width * 0.75));
-    
-    // Decide if spine should zigzag (more likely at high complexity)
-    const zigzag = complexity > 0.5 && this.rng.next() < complexity;
-    const zigzagInterval = zigzag ? this.rng.range(3, 5) : 999;
-    
-    // Start spine from row 4 (leave top rows for exit ladder only)
-    const spineStartY = 4;
-    for (let y = spineStartY; y < map.height - 1; y++) {
-      map.setTile(spineX, y, TileType.LADDER);
-      
-      // Zigzag: shift spine left or right periodically
-      if (zigzag && y > 0 && y % zigzagInterval === 0 && y < map.height - 3) {
-        const shift = this.rng.range(2, 5) * (this.rng.next() < 0.5 ? -1 : 1);
-        const newX = Math.max(2, Math.min(map.width - 3, spineX + shift));
-        
-        // Create horizontal connection
-        const startX = Math.min(spineX, newX);
-        const endX = Math.max(spineX, newX);
-        for (let x = startX; x <= endX; x++) {
-          if (map.getTile(x, y) === TileType.EMPTY) {
-            map.setTile(x, y, TileType.LADDER);
-          }
-        }
-        spineX = newX;
-      }
-    }
+
+  private funScore(map: TileMap, res: SolvabilityResult, wantAssisted: number): number {
+    const a = res.analysis!;
+    const rows = new Set(map.goldPositions.map(g => g.y)).size;
+    return a.tourLength * 0.6 + a.digRequiredGold * 8 + rows * 4 + Math.min(wantAssisted, res.enemyAssistedGold) * 6
+      + Math.min(a.mainSize, 200) * 0.05 - a.oneWayCells * 0.4 - a.deathTrapHoles * 0.1 + this.rng.next();
   }
-  
-  private createGround(map: TileMap): void {
-    // Bottom row is mostly solid
-    const y = map.height - 1;
-    for (let x = 0; x < map.width; x++) {
-      map.setTile(x, y, TileType.BRICK);
+
+  // ---------------------------------------------------------------- candidate
+
+  private candidate(p: Params): { map: TileMap; res: SolvabilityResult } | null {
+    const rng = this.rng, m = new TileMap(), W = m.width, H = m.height;
+    const get = (x: number, y: number) => m.getTile(x, y);
+    const set = (x: number, y: number, t: TileType) => m.setTile(x, y, t);
+    const isBrick = (x: number, y: number) => { const t = get(x, y); return t === T.BRICK || t === T.BRICK_HARD; };
+    const reserved = new Uint8Array(W); // columns where repair ladders are forbidden (vaults)
+
+    // ground
+    for (let x = 0; x < W; x++) set(x, H - 1, T.BRICK);
+    for (let k = rng.range(0, 3); k > 0; k--) {
+      const len = rng.range(2, 6), x0 = rng.range(0, W - len);
+      for (let x = x0; x < x0 + len; x++) set(x, H - 1, T.BRICK_HARD);
     }
-  }
-  
-  private createConnectedPlatforms(map: TileMap): void {
-    // Create platform rows with ladders connecting them
-    // More complex levels have more platform rows to navigate
-    const platformRows = [map.height - 4, map.height - 7, map.height - 10, 3, map.height - 13];
-    
-    // Complexity controls how many platform layers we have
-    // complexity 0.4 = 2 platforms, 0.6 = 3, 0.8 = 4, 1.0 = 5
-    const complexity = this.difficulty.complexity ?? 0.6;
-    const numPlatforms = Math.floor(1 + complexity * 4);
-    const activePlatforms = platformRows.slice(0, Math.min(numPlatforms, platformRows.length));
-    
-    let previousLadderPositions: number[] = [];
-    
-    for (let i = 0; i < activePlatforms.length; i++) {
-      const row = activePlatforms[i];
-      const ladderPositions = this.createPlatformWithLadders(map, row, previousLadderPositions);
-      previousLadderPositions = ladderPositions;
+
+    // floors
+    const minTop = p.assisted ? 6 : 4;
+    const floors: number[] = [];
+    for (let y = H - 1; ;) {
+      let next = y - rng.pick(p.c > 0.7 ? [3, 3, 3, 4, 2] : [3, 3, 4, 4]);
+      if (next < minTop) { if (y - minTop >= 3) next = minTop; else break; }
+      floors.push(next); y = next;
     }
-  }
-  
-  private createPlatformWithLadders(map: TileMap, row: number, connectFrom: number[]): number[] {
-    const ladderPositions: number[] = [];
-    
-    // Create platform segments - more complex levels have more segments
-    const complexity = this.difficulty.complexity ?? 0.6;
-    const minSegments = Math.floor(2 + complexity);
-    const maxSegments = Math.floor(3 + complexity * 3);
-    const numSegments = this.rng.range(minSegments, maxSegments + 1);
-    const segmentWidth = Math.floor(map.width / numSegments);
-    
-    for (let seg = 0; seg < numSegments; seg++) {
-      const startX = seg * segmentWidth + this.rng.range(0, 3);
-      const endX = Math.min(startX + this.rng.range(4, segmentWidth), map.width - 1);
-      
-      // Leave gap between segments
-      if (seg > 0 && startX < seg * segmentWidth + 2) continue;
-      
-      // Create platform
-      for (let x = startX; x <= endX; x++) {
-        map.setTile(x, row, TileType.BRICK);
+    const gapsByFloor = new Map<number, [number, number][]>();
+    for (const fy of floors) {
+      const x0 = rng.chance(0.5) ? 0 : rng.range(1, 4);
+      const x1 = rng.chance(0.5) ? W - 1 : W - 1 - rng.range(1, 4);
+      for (let x = x0; x <= x1; x++) set(x, fy, T.BRICK);
+      const gaps: [number, number][] = [];
+      for (let k = rng.range(1, 2 + Math.round(p.c * 2)); k > 0; k--) {
+        const gw = rng.pick([1, 1, 2, 2, 3, 4]);
+        const gx = rng.range(x0 + 3, x1 - 2 - gw);
+        if (gx < x0 + 3 || gaps.some(([a, b]) => gx <= b + 3 && gx + gw - 1 >= a - 3)) continue;
+        for (let x = gx; x < gx + gw; x++) set(x, fy, T.EMPTY);
+        gaps.push([gx, gx + gw - 1]);
       }
-      
-      // Add ladder somewhere in this segment - probability based on ladder density
-      if (this.rng.next() < this.difficulty.ladderDensity) {
-        const ladderX = startX + this.rng.range(1, Math.max(2, endX - startX - 1));
-        if (ladderX >= startX && ladderX <= endX) {
-          this.extendLadderDown(map, ladderX, row);
-          ladderPositions.push(ladderX);
-        }
+      gapsByFloor.set(fy, gaps);
+      if (rng.chance(0.2 + 0.3 * p.c)) {
+        const len = rng.range(2, 6), hx = rng.range(x0, Math.max(x0 + 1, x1 - len));
+        for (let x = hx; x < hx + len; x++) if (get(x, fy) === T.BRICK) set(x, fy, T.BRICK_HARD);
       }
     }
-    
-    // Ensure at least one ladder connects to a previous ladder position (for solvability)
-    if (connectFrom.length > 0) {
-      const targetX = this.rng.pick(connectFrom);
-      // Find nearest platform position
-      for (let dx = 0; dx < 5; dx++) {
-        for (const offset of [dx, -dx]) {
-          const x = targetX + offset;
-          if (x >= 0 && x < map.width && map.getTile(x, row) === TileType.BRICK) {
-            this.extendLadderDown(map, x, row);
-            if (!ladderPositions.includes(x)) {
-              ladderPositions.push(x);
-            }
-            break;
-          }
-        }
+    const top = floors.length ? floors[floors.length - 1] : H - 1;
+
+    // ladders between consecutive floors (flush with the upper floor, down to support)
+    const ladderCols: number[] = [];
+    const placeLadder = (x: number, y0: number) => {
+      set(x, y0, T.LADDER);
+      for (let y = y0 + 1; y < H && !isBrick(x, y) && get(x, y) !== T.BRICK_TRAP; y++) set(x, y, T.LADDER);
+      ladderCols.push(x);
+    };
+    const levels = [H - 1, ...floors];
+    for (let i = 1; i < levels.length; i++) {
+      const yu = levels[i];
+      let k = 1 + (rng.chance(p.ld) ? 1 : 0) + (rng.chance(p.ld * 0.6) ? 1 : 0);
+      for (let tries = 0; tries < 30 && k > 0; tries++) {
+        const x = rng.range(1, W - 1);
+        if (get(x, yu - 1) !== T.EMPTY || get(x, yu) === T.BRICK_HARD) continue;
+        let near = false;
+        for (let y = yu; y < levels[i - 1]; y++) for (let dx = -2; dx <= 2; dx++) if (get(x + dx, y) === T.LADDER) near = true;
+        if (near) continue;
+        placeLadder(x, yu); k--;
       }
     }
-    
-    return ladderPositions;
-  }
-  
-  private extendLadderDown(map: TileMap, x: number, fromRow: number): void {
-    // Extend ladder downward to next solid surface
-    // The ladder should reach the platform surface (so player can step off)
-    for (let y = fromRow; y < map.height; y++) {
-      const tile = map.getTile(x, y);
-      // Stop when we hit a hard brick or the bottom
-      if (tile === TileType.BRICK_HARD) {
-        break;
-      }
-      // If this is a regular brick, replace it with ladder (creating access point)
-      // but stop - don't go below solid ground
-      if (tile === TileType.BRICK || tile === TileType.BRICK_TRAP) {
-        // Don't dig into the ground floor
-        if (y < map.height - 1) {
-          map.setTile(x, y, TileType.LADDER);
-        }
-        break;
-      }
-      map.setTile(x, y, TileType.LADDER);
-    }
-  }
-  
-  private addExtraLadders(map: TileMap): void {
-    // Add some random ladders for more paths
-    // Ladder density controls how many extra easy routes exist
-    const extraLadders = Math.floor(this.difficulty.ladderDensity * 10);
-    
-    for (let i = 0; i < extraLadders; i++) {
-      const x = this.rng.range(2, map.width - 2);
-      
-      // Find a platform
-      for (let y = 2; y < map.height - 2; y++) {
-        if (map.getTile(x, y) === TileType.BRICK && map.getTile(x, y - 1) === TileType.EMPTY) {
-          this.extendLadderDown(map, x, y - 1);
-          break;
-        }
+
+    // poles across gaps (at standing height)
+    for (const [fy, gaps] of gapsByFloor) for (const [a, b] of gaps) {
+      if (b - a >= 1 && rng.chance(0.4)) {
+        let ok = true;
+        for (let x = a; x <= b; x++) if (get(x, fy - 1) !== T.EMPTY) ok = false;
+        if (ok) for (let x = a; x <= b; x++) set(x, fy - 1, T.POLE);
       }
     }
-  }
-  
-  private createPoles(map: TileMap): void {
-    // Poles in classic Lode Runner serve specific purposes:
-    // 1. Bridge gaps between platforms (ONLY when they connect two reachable areas)
-    // 2. Provide access to isolated areas that would otherwise be unreachable
-    // 3. Create strategic routes for escaping enemies
-    // 
-    // Poles should NEVER:
-    // - Hang over empty space with no purpose
-    // - Be placed directly above solid floor where walking would suffice
-    // - Lead to dead ends
-    
-    // First, identify all platform segments and their edges
-    interface Platform {
-      y: number;        // Row (surface level - the row you walk on is y+1)
-      startX: number;
-      endX: number;
-    }
-    
-    const platforms: Platform[] = [];
-    
-    for (let y = 1; y < map.height - 1; y++) {
-      let platformStart = -1;
-      for (let x = 0; x < map.width; x++) {
-        const isWalkable = this.isWalkableSurface(map, x, y);
-        
-        if (isWalkable && platformStart === -1) {
-          platformStart = x;
-        } else if (!isWalkable && platformStart !== -1) {
-          platforms.push({ y: y - 1, startX: platformStart, endX: x - 1 });
-          platformStart = -1;
-        }
+    // hanging poles off ladders
+    for (let k = rng.range(0, 2 + Math.round(p.c * 2)); k > 0; k--) {
+      const lx = rng.pick(ladderCols.length ? ladderCols : [0]);
+      const r = rng.range(top + 1, H - 2);
+      if (get(lx, r) !== T.LADDER) continue;
+      const dir = rng.chance(0.5) ? 1 : -1, len = rng.range(3, 9);
+      const cells: P[] = [];
+      for (let s = 1; s <= len; s++) {
+        const x = lx + dir * s;
+        if (get(x, r) !== T.EMPTY || get(x, r + 1) !== T.EMPTY || get(x, r - 1) === T.LADDER) break;
+        cells.push({ x, y: r });
       }
-      if (platformStart !== -1) {
-        platforms.push({ y: y - 1, startX: platformStart, endX: map.width - 1 });
-      }
+      if (cells.length >= 3) for (const c of cells) set(c.x, c.y, T.POLE);
     }
-    
-    // Find pairs of platforms at the same height that could be connected
-    const polesCreated: { y: number; startX: number; endX: number }[] = [];
-    
-    for (let i = 0; i < platforms.length; i++) {
-      for (let j = i + 1; j < platforms.length; j++) {
-        const p1 = platforms[i];
-        const p2 = platforms[j];
-        
-        // Must be at same height
-        if (p1.y !== p2.y) continue;
-        
-        // Determine gap between them
-        const leftPlatform = p1.endX < p2.startX ? p1 : p2;
-        const rightPlatform = p1.endX < p2.startX ? p2 : p1;
-        
-        const gapStart = leftPlatform.endX + 1;
-        const gapEnd = rightPlatform.startX - 1;
-        const gapLength = gapEnd - gapStart + 1;
-        
-        // Gap must be meaningful (3-15 tiles) - walking over small gaps defeats the purpose
-        if (gapLength < 3 || gapLength > 15) continue;
-        
-        // Check if path is clear (no obstructions)
-        let pathClear = true;
-        for (let x = gapStart; x <= gapEnd; x++) {
-          const tile = map.getTile(x, p1.y);
-          if (tile !== TileType.EMPTY && tile !== TileType.GOLD) {
-            pathClear = false;
-            break;
-          }
-        }
-        if (!pathClear) continue;
-        
-        // IMPORTANT: Don't create pole if there's solid ground directly below the entire gap
-        // (that would be pointless - you could just walk)
-        let hasDropZone = false;
-        for (let x = gapStart; x <= gapEnd; x++) {
-          const below = map.getTile(x, p1.y + 1);
-          if (below !== TileType.BRICK && below !== TileType.BRICK_HARD && below !== TileType.BRICK_TRAP) {
-            hasDropZone = true;
-            break;
-          }
-        }
-        if (!hasDropZone) continue;
-        
-        // Don't overlap with existing poles
-        let overlaps = false;
-        for (const existing of polesCreated) {
-          if (existing.y === p1.y && 
-              !(gapEnd < existing.startX || gapStart > existing.endX)) {
-            overlaps = true;
-            break;
-          }
-        }
-        if (overlaps) continue;
-        
-        // Create pole with some randomness (not all valid gaps get poles)
-        const connectionChance = 0.5 + this.difficulty.complexity * 0.3;
-        if (this.rng.chance(connectionChance)) {
-          // Create pole from platform edge to platform edge
-          for (let x = leftPlatform.endX; x <= rightPlatform.startX; x++) {
-            const current = map.getTile(x, p1.y);
-            if (current === TileType.EMPTY) {
-              map.setTile(x, p1.y, TileType.POLE);
-            }
-          }
-          polesCreated.push({ y: p1.y, startX: leftPlatform.endX, endX: rightPlatform.startX });
-        }
+
+    // vaults: hard walls, diggable brick ceiling & floor, gold inside (dig in, dig out)
+    const vaultCells: P[] = [];
+    for (let k = (rng.chance(0.3 + 0.6 * p.c) ? 1 : 0) + (rng.chance(p.c - 0.5) ? 1 : 0); k > 0; k--) {
+      if (levels.length < 4) break;
+      const i = rng.range(2, levels.length);
+      const yu = levels[i], yl = levels[i - 1];
+      const w = rng.range(2, 5), a = rng.range(2, W - w - 2);
+      let ok = yl < H - 1;
+      for (let x = a - 1; ok && x <= a + w; x++) {
+        if (!isBrick(x, yu) || get(x, yl) !== T.BRICK || get(x, yu - 1) !== T.EMPTY || reserved[x]) ok = false;
+        for (let y = yu + 1; ok && y < yl; y++) if (get(x, y) !== T.EMPTY) ok = false;
+      }
+      if (!ok) continue;
+      for (let y = yu; y <= yl; y++) { set(a - 1, y, T.BRICK_HARD); set(a + w, y, T.BRICK_HARD); }
+      for (let x = a; x < a + w; x++) { set(x, yu, T.BRICK); vaultCells.push({ x, y: yl - 1 }); }
+      for (let x = a - 1; x <= a + w; x++) reserved[x] = 1;
+    }
+
+    // trap bricks over open space
+    for (let k = (rng.chance(p.trap * 4) ? 1 : 0) + (rng.chance(p.trap * 2) ? 1 : 0); k > 0; k--) {
+      for (let tries = 0; tries < 20; tries++) {
+        const fy = rng.pick(floors.length ? floors : [H - 1]), x = rng.range(1, W - 1);
+        if (fy === H - 1 || get(x, fy) !== T.BRICK || get(x, fy - 1) !== T.EMPTY || get(x, fy + 1) !== T.EMPTY || reserved[x]) continue;
+        set(x, fy, T.BRICK_TRAP); break;
       }
     }
-    
-    // Secondary: Create poles that extend from ladders to reach isolated platforms
-    // This is for cases where a ladder is near a platform but doesn't quite connect
-    for (let y = 2; y < map.height - 3; y++) {
-      for (let x = 2; x < map.width - 2; x++) {
-        if (map.getTile(x, y) !== TileType.LADDER) continue;
-        
-        // Check each direction for a nearby platform that's not directly reachable
-        for (const dir of [-1, 1]) {
-          // Look for a platform edge in this direction
-          let targetX = -1;
-          for (let dx = 1; dx <= 8; dx++) {
-            const checkX = x + dir * dx;
-            if (checkX < 0 || checkX >= map.width) break;
-            
-            const tile = map.getTile(checkX, y);
-            if (tile !== TileType.EMPTY && tile !== TileType.POLE) break;
-            
-            // Check if there's a platform to land on here
-            const below = map.getTile(checkX, y + 1);
-            if (below === TileType.BRICK || below === TileType.BRICK_HARD || below === TileType.LADDER) {
-              targetX = checkX;
-              break;
-            }
-          }
-          
-          // Only create pole if target is at least 3 tiles away and we found a landing spot
-          if (targetX !== -1 && Math.abs(targetX - x) >= 3) {
-            // Check there's no floor directly connecting these positions
-            let needsPole = false;
-            for (let checkX = Math.min(x, targetX); checkX <= Math.max(x, targetX); checkX++) {
-              const below = map.getTile(checkX, y + 1);
-              if (below !== TileType.BRICK && below !== TileType.BRICK_HARD && below !== TileType.LADDER) {
-                needsPole = true;
-                break;
-              }
-            }
-            
-            if (needsPole && this.rng.chance(0.35)) {
-              const startX = Math.min(x, targetX);
-              const endX = Math.max(x, targetX);
-              for (let fillX = startX; fillX <= endX; fillX++) {
-                const current = map.getTile(fillX, y);
-                if (current === TileType.EMPTY) {
-                  map.setTile(fillX, y, TileType.POLE);
-                }
-              }
-            }
-          }
-        }
+
+    // sky ledges for enemy-assisted gold
+    const assisted: P[] = [];
+    const ledges: P[][] = [];
+    for (let k = p.assisted; k > 0; k--) {
+      const ly = top - rng.range(2, 4), len = rng.range(3, 6), lx = rng.range(1, W - len - 1);
+      if (ly < 2) continue;
+      let ok = true;
+      for (let x = lx - 2; x <= lx + len + 1; x++) for (let y = 0; y <= Math.min(ly + 2, top - 1); y++) if (get(x, y) !== T.EMPTY) ok = false;
+      if (!ok) continue;
+      const cells: P[] = [];
+      for (let x = lx; x < lx + len; x++) { set(x, ly, T.BRICK_HARD); cells.push({ x, y: ly }); }
+      ledges.push(cells);
+      assisted.push({ x: lx + rng.range(0, len), y: ly - 1 });
+    }
+
+    // player start on the ground
+    let sx = -1;
+    for (let tries = 0; tries < 30 && sx < 0; tries++) {
+      const x = rng.range(1, W - 1);
+      if (get(x, H - 2) === T.EMPTY && isBrick(x, H - 1)) sx = x;
+    }
+    if (sx < 0) return null;
+    m.playerStart = { x: sx, y: H - 2 };
+
+    // connectivity repair: give every standing area outside the start SCC a ladder down
+    const N = W * H, start = (H - 2) * W + sx;
+    let g!: MoveGraph, comp!: Int32Array, reach!: Uint8Array;
+    for (let iter = 0; ; iter++) {
+      g = new MoveGraph(m, false);
+      comp = g.scc(); reach = g.bfs([start]);
+      if (iter >= 10) break;
+      const main = comp[start];
+      const bad: P[] = [];
+      for (let y = top - 1; y < H - 2; y++) for (let x = 1; x < W - 1; x++) {
+        if (comp[y * W + x] === main || get(x, y) !== T.EMPTY || get(x, y + 1) !== T.BRICK || reserved[x]) continue;
+        if (assisted.some(q => q.y === y)) continue;
+        let near = false;
+        for (let dy = 0; dy < 4; dy++) for (const dx of [-1, 1]) if (get(x + dx, y + dy) === T.LADDER) near = true;
+        if (near) continue;
+        bad.push({ x, y });
       }
+      if (!bad.length) break;
+      // fix the lowest areas first (they are what upper areas drop into)
+      const lowY = Math.max(...bad.map(b => b.y));
+      const row = bad.filter(b => b.y === lowY);
+      const c = rng.pick(row);
+      placeLadder(c.x, c.y + 1);
     }
-  }
-  
-  /**
-   * Check if a position has a walkable surface (player can stand on the tile below)
-   */
-  private isWalkableSurface(map: TileMap, x: number, y: number): boolean {
-    if (y >= map.height) return false;
-    const tile = map.getTile(x, y);
-    return tile === TileType.BRICK || 
-           tile === TileType.BRICK_HARD || 
-           tile === TileType.BRICK_TRAP ||
-           tile === TileType.LADDER;
-  }
-  
-  private addHardBricks(map: TileMap): void {
-    // Scatter some hard bricks
-    for (let y = 1; y < map.height - 1; y++) {
-      for (let x = 0; x < map.width; x++) {
-        if (map.getTile(x, y) === TileType.BRICK && this.rng.chance(0.05)) {
-          map.setTile(x, y, TileType.BRICK_HARD);
-        }
+    const main = comp[start];
+
+    // exit column above the top floor
+    const exits: number[] = [];
+    for (let x = 2; x < W - 2; x++) {
+      const i = (top - 1) * W + x;
+      if (comp[i] !== main || !(isBrick(x, top) || get(x, top) === T.LADDER)) continue;
+      let clear = true;
+      for (let y = 0; y < top; y++) if (get(x, y) !== T.EMPTY) clear = false;
+      if (assisted.some(q => Math.abs(q.x - x) <= 1)) clear = false;
+      if (clear) { exits.push(x); if (get(x, top) === T.LADDER) exits.push(x, x); }
+    }
+    if (!exits.length) return null;
+    const ex = rng.pick(exits);
+    for (let y = 0; y < top; y++) m.exitLadders.push({ x: ex, y });
+
+    // gold
+    const noDig = g.bfs([start], true);
+    const cand: P[] = [];
+    const digCand: P[] = [];
+    for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (comp[i] !== main || get(x, y) !== T.EMPTY || !isBrick(x, y + 1) || x === ex) continue;
+      if (Math.abs(x - sx) + Math.abs(y - (H - 2)) < 3) continue;
+      (noDig[i] ? cand : digCand).push({ x, y });
+    }
+    const d = this.difficulty;
+    const nAssist = assisted.length;
+    const nGold = Math.max(1, rng.range(d.gold[0], d.gold[1] + 1) - nAssist);
+    const chosen: P[] = [];
+    const vaultGold = vaultCells.filter(v => digCand.some(c => c.x === v.x && c.y === v.y));
+    rng.shuffle(vaultGold); rng.shuffle(digCand);
+    for (const v of [...vaultGold.slice(0, 1), ...digCand]) {
+      if (chosen.length >= Math.ceil(nGold / 4)) break;
+      if (!chosen.some(c => Math.abs(c.x - v.x) < 3 && c.y === v.y)) chosen.push(v);
+    }
+    const pool = [...cand, ...digCand];
+    const rowCount = (y: number) => chosen.filter(c => c.y === y).length;
+    while (chosen.length < nGold && pool.length) {
+      let bi = -1, bs = -1e9;
+      for (let s = 0; s < 24; s++) {
+        const j = rng.range(0, pool.length), q = pool[j];
+        let md = 99;
+        for (const c of chosen) md = Math.min(md, Math.abs(c.x - q.x) + Math.abs(c.y - q.y) * 2);
+        const sc = Math.min(md, 12) - rowCount(q.y) * 2 + rng.next() * 3;
+        if (md > 0 && sc > bs) { bs = sc; bi = j; }
       }
+      if (bi < 0) break;
+      chosen.push(pool[bi]); pool.splice(bi, 1);
     }
-  }
-  
-  private addTrapBricks(map: TileMap): void {
-    const chance = this.difficulty.trapBrickChance;
-    for (let y = 1; y < map.height - 1; y++) {
-      for (let x = 0; x < map.width; x++) {
-        if (map.getTile(x, y) === TileType.BRICK && this.rng.chance(chance)) {
-          // Don't trap brick if it's directly above a ladder
-          if (map.getTile(x, y + 1) === TileType.LADDER) continue;
-          map.setTile(x, y, TileType.BRICK_TRAP);
-        }
-      }
+    if (chosen.length < Math.min(nGold, 3)) return null;
+    for (const c of chosen) { set(c.x, c.y, T.GOLD); m.goldPositions.push(c); }
+    for (const a of assisted) {
+      set(a.x, a.y, T.GOLD); m.goldPositions.push(a);
+      m.enemyAssistedGoldPositions.push(a); m.enemyAssistedSpawns.push({ x: a.x, y: 0 });
     }
-  }
-  
-  /**
-   * Ensure ladders have accessible entry/exit points.
-   * Remove bricks that block ladder tops.
-   */
-  private ensureLadderAccessibility(map: TileMap): void {
-    for (let x = 0; x < map.width; x++) {
-      for (let y = 1; y < map.height - 1; y++) {
-        const tile = map.getTile(x, y);
-        
-        // If there's a ladder here
-        if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT) {
-          // Check if there's a brick directly above that would block it
-          const above = map.getTile(x, y - 1);
-          if (above === TileType.BRICK || above === TileType.BRICK_TRAP) {
-            // Check if there's a way to reach the ladder from the side
-            const leftClear = x > 0 && !map.isSolid(x - 1, y);
-            const rightClear = x < map.width - 1 && !map.isSolid(x + 1, y);
-            
-            // If no side access and ladder continues up, we need platform access
-            if (!leftClear && !rightClear) {
-              // Remove the blocking brick and make it a platform edge
-              map.setTile(x, y - 1, TileType.EMPTY);
-            }
-          }
-          
-          // Ensure ladder top has an accessible entry point
-          // Find the top of this ladder
-          let ladderTop = y;
-          while (ladderTop > 0 && (map.getTile(x, ladderTop - 1) === TileType.LADDER || map.getTile(x, ladderTop - 1) === TileType.LADDER_EXIT)) {
-            ladderTop--;
-          }
-          
-          // If at the very top of map, it's an exit - ok
-          if (ladderTop === 0) continue;
-          
-          // Otherwise, ensure there's a platform to step onto at ladder top
-          // The tile above ladder top should be empty, and there should be
-          // at least one side accessible
-          const aboveTop = map.getTile(x, ladderTop - 1);
-          if (aboveTop === TileType.BRICK || aboveTop === TileType.BRICK_HARD || aboveTop === TileType.BRICK_TRAP) {
-            // Ladder is blocked! Check if we can access from sides at ladderTop
-            const leftAccessible = x > 0 && !map.isSolid(x - 1, ladderTop) && map.isSupport(x - 1, ladderTop + 1);
-            const rightAccessible = x < map.width - 1 && !map.isSolid(x + 1, ladderTop) && map.isSupport(x + 1, ladderTop + 1);
-            
-            if (!leftAccessible && !rightAccessible) {
-              // No side access, need to clear the blocking brick
-              map.setTile(x, ladderTop - 1, TileType.EMPTY);
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  private placePlayer(map: TileMap): void {
-    // Place player on ground floor
-    const groundY = map.height - 2;
-    
-    // Find valid spot on ground
-    for (let attempts = 0; attempts < 20; attempts++) {
-      const x = this.rng.range(2, map.width - 2);
-      if (map.getTile(x, groundY) === TileType.EMPTY || 
-          map.getTile(x, groundY) === TileType.LADDER) {
-        map.playerStart = { x, y: groundY };
-        return;
-      }
-    }
-    
-    // Fallback - find any empty spot on ground
-    for (let x = 1; x < map.width - 1; x++) {
-      if (!map.isSolid(x, groundY)) {
-        map.playerStart = { x, y: groundY };
-        return;
-      }
-    }
-    
-    map.playerStart = { x: 2, y: groundY };
-  }
-  
-  private placeGold(map: TileMap): void {
-    const [minGold, maxGold] = this.difficulty.gold;
-    const goldCount = this.rng.range(minGold, maxGold + 1);
-    
-    // First, compute reachable positions from player start using BFS
-    const playerReachable = this.computeReachablePositions(map);
-    
-    // For Hard/Ninja, also compute enemy-reachable positions for potential enemy-assisted gold
-    const maxEnemyAssisted = this.getMaxEnemyAssistedGold();
-    let enemyReachable: Set<string> | null = null;
-    
-    if (maxEnemyAssisted > 0) {
-      // Compute enemy spawn and reachable positions
-      const enemySpawns = this.computeEnemySpawnPositions(map);
-      enemyReachable = this.computeEnemyReachablePositions(map, enemySpawns);
-    }
-    
-    // Collect valid gold spots in categories by vertical zone:
-    // - Upper zone (rows 1-5): priority for interesting placement
-    // - Middle zone (rows 6-10): good placement
-    // - Lower zone (rows 11-13): limited placement
-    // - Ground floor (row 14 = height-2): very limited
-    const groundY = map.height - 2;
-    
-    const upperSpots: { x: number; y: number }[] = [];    // rows 1-5
-    const middleSpots: { x: number; y: number }[] = [];   // rows 6-10  
-    const lowerSpots: { x: number; y: number }[] = [];    // rows 11-13
-    const groundSpots: { x: number; y: number }[] = [];   // row 14 (ground)
-    const enemyOnlySpots: { x: number; y: number }[] = [];
-    
-    for (let y = 1; y < map.height - 1; y++) {
-      for (let x = 0; x < map.width; x++) {
-        if (!this.isValidGoldSpot(map, x, y)) continue;
-        
-        const key = `${x},${y}`;
-        if (playerReachable.has(key)) {
-          // Categorize by vertical zone
-          if (y <= 5) {
-            upperSpots.push({ x, y });
-          } else if (y <= 10) {
-            middleSpots.push({ x, y });
-          } else if (y < groundY) {
-            lowerSpots.push({ x, y });
-          } else {
-            groundSpots.push({ x, y });
-          }
-        } else if (enemyReachable && enemyReachable.has(key)) {
-          enemyOnlySpots.push({ x, y });
-        }
-      }
-    }
-    
-    // Shuffle each zone
-    this.rng.shuffle(upperSpots);
-    this.rng.shuffle(middleSpots);
-    this.rng.shuffle(lowerSpots);
-    this.rng.shuffle(groundSpots);
-    this.rng.shuffle(enemyOnlySpots);
-    
-    // Combine spots with priority: upper > middle > lower > ground
-    // This ensures vertical distribution
-    const playerReachableSpots = [
-      ...upperSpots,
-      ...middleSpots, 
-      ...lowerSpots,
-      ...groundSpots
-    ];
-    
-    // For Hard/Ninja debug purposes only (uncomment to debug):
-    // if (maxEnemyAssisted > 0) {
-    //   console.log(`Gold spots: ${playerReachableSpots.length} player-reachable, ${enemyOnlySpots.length} enemy-only`);
-    // }
-    
-    // Place gold in two phases:
-    // 1. Player-reachable gold (the majority)
-    // 2. For Hard/Ninja: potentially some enemy-assisted gold
-    const placed: { x: number; y: number }[] = [];
-    
-    // For Hard/Ninja: decide FIRST if we want enemy-assisted gold
-    // This way we can reserve slots for it
-    let numEnemyAssisted = 0;
-    if (maxEnemyAssisted > 0 && enemyOnlySpots.length > 0) {
-      // Hard: ~40% chance of 1 enemy-assisted gold
-      // Ninja: ~60% chance, can have 1-2
-      const enemyAssistedChance = this.difficultyKey === 'ninja' ? 0.6 : 0.4;
-      
-      if (this.rng.next() < enemyAssistedChance) {
-        numEnemyAssisted = Math.min(
-          maxEnemyAssisted,
-          enemyOnlySpots.length,
-          this.difficultyKey === 'ninja' ? this.rng.range(1, 3) : 1
-        );
-        // console.log(`Planning ${numEnemyAssisted} enemy-assisted gold piece(s)`);
-      }
-    }
-    
-    // Player-reachable gold target (total minus enemy-assisted)
-    const playerGoldTarget = goldCount - numEnemyAssisted;
-    
-    // Track gold per vertical zone to ensure distribution
-    let groundGoldCount = 0;
-    const maxGroundGold = Math.max(2, Math.floor(goldCount / 5)); // Max ~20% on ground
-    
-    // Phase 1: Place player-reachable gold with spacing
-    for (const spot of playerReachableSpots) {
-      if (placed.length >= playerGoldTarget) break;
-      
-      // Limit ground floor gold
-      if (spot.y >= groundY && groundGoldCount >= maxGroundGold) continue;
-      
-      // Check distance from other gold - require more horizontal spread
-      // and some vertical separation
-      const tooClose = placed.some(p => {
-        const dx = Math.abs(p.x - spot.x);
-        const dy = Math.abs(p.y - spot.y);
-        // Require at least 3 tiles horizontal OR 2 tiles vertical separation
-        return dx < 3 && dy < 2;
+
+    // validate (drop assisted gold that does not qualify)
+    let res = analyzeLevel(m, m.enemyAssistedGoldPositions, p.assisted);
+    if (!res.solvable && assisted.length) {
+      assisted.forEach((a, li) => {
+        if (res.enemyAssistedPositions.some(q => q.x === a.x && q.y === a.y)) return;
+        set(a.x, a.y, T.EMPTY);
+        for (const c of ledges[li]) set(c.x, c.y, T.EMPTY);
+        m.goldPositions = m.goldPositions.filter(q => q !== a);
+        m.enemyAssistedGoldPositions = m.enemyAssistedGoldPositions.filter(q => q !== a);
+        m.enemyAssistedSpawns = m.enemyAssistedSpawns.filter(q => q.x !== a.x);
       });
-      
-      if (!tooClose) {
-        map.setTile(spot.x, spot.y, TileType.GOLD);
-        map.goldPositions.push(spot);
-        placed.push(spot);
-        if (spot.y >= groundY) groundGoldCount++;
+      res = analyzeLevel(m, m.enemyAssistedGoldPositions, p.assisted);
+    }
+    if (!res.solvable) return null;
+    m.goldDropCells = res.analysis!.dropCells;
+
+    // guards: assisted spawns first, then spread over the main area away from the player
+    const nEnemies = rng.range(d.enemies[0], d.enemies[1] + 1);
+    for (const s of m.enemyAssistedSpawns) if (m.enemyStarts.length < nEnemies) m.enemyStarts.push({ ...s });
+    const ecand: P[] = [];
+    for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (i >= N || comp[i] !== main || !reach[i] || get(x, y) !== T.EMPTY || !g.stable(x, y) || x === ex) continue;
+      if (Math.abs(x - sx) + Math.abs(y - (H - 2)) < 10) continue;
+      ecand.push({ x, y });
+    }
+    while (m.enemyStarts.length < nEnemies && ecand.length) {
+      let bi = 0, bs = -1e9;
+      for (let s = 0; s < 16; s++) {
+        const j = rng.range(0, ecand.length), q = ecand[j];
+        let md = 20;
+        for (const e of m.enemyStarts) md = Math.min(md, Math.abs(e.x - q.x) + Math.abs(e.y - q.y));
+        const sc = md + rng.next() * 4;
+        if (sc > bs) { bs = sc; bi = j; }
       }
+      m.enemyStarts.push(ecand[bi]); ecand.splice(bi, 1);
     }
-    
-    // Fill remaining player gold with spacing-relaxed (but still limit ground)
-    for (const spot of playerReachableSpots) {
-      if (placed.length >= playerGoldTarget) break;
-      if (placed.some(p => p.x === spot.x && p.y === spot.y)) continue;
-      if (spot.y >= groundY && groundGoldCount >= maxGroundGold) continue;
-      
-      map.setTile(spot.x, spot.y, TileType.GOLD);
-      map.goldPositions.push(spot);
-      placed.push(spot);
-      if (spot.y >= groundY) groundGoldCount++;
-    }
-    
-    // Phase 2: Place enemy-assisted gold
-    let enemyAssistedPlaced = 0;
-    for (let i = 0; i < numEnemyAssisted && i < enemyOnlySpots.length; i++) {
-      const spot = enemyOnlySpots[i];
-      
-      // Check distance from other gold (slightly relaxed)
-      const tooClose = placed.some(p => 
-        Math.abs(p.x - spot.x) + Math.abs(p.y - spot.y) < 3
-      );
-      
-      if (!tooClose) {
-        map.setTile(spot.x, spot.y, TileType.GOLD);
-        map.goldPositions.push(spot);
-        placed.push(spot);
-        enemyAssistedPlaced++;
-      }
-    }
-    
-    // Note: We don't track enemy-assisted gold here because this placement
-    // uses a simplified reachability check. The SolvabilityChecker's analysis
-    // is authoritative and will determine actual enemy-assisted positions later.
+    if (!m.enemyStarts.length) return null;
+    return { map: m, res };
   }
-  
-  /**
-   * Get max allowed enemy-assisted gold for current difficulty
-   */
-  private getMaxEnemyAssistedGold(): number {
-    switch (this.difficultyKey) {
-      case 'hard':
-        return 1;  // Allow max 1 enemy-assisted gold
-      case 'ninja':
-        return 2;  // Allow max 1-2 enemy-assisted gold
-      default:
-        return 0;  // Easy/Normal: no enemy-assisted gold
-    }
-  }
-  
-  /**
-   * Compute all positions where enemies can spawn/respawn.
-   */
-  private computeEnemySpawnPositions(map: TileMap): { x: number; y: number }[] {
-    const spawns: { x: number; y: number }[] = [];
-    
-    // Primary spawns: top rows on ladders or empty space
-    for (let y = 0; y < 5; y++) {
-      for (let x = 0; x < map.width; x++) {
-        const tile = map.getTile(x, y);
-        if (tile === TileType.LADDER || tile === TileType.LADDER_EXIT ||
-            tile === TileType.EMPTY || tile === TileType.POLE) {
-          spawns.push({ x, y });
-        }
-      }
-    }
-    
-    // Also include initial enemy start positions
-    for (const start of map.enemyStarts) {
-      if (!spawns.some(s => s.x === start.x && s.y === start.y)) {
-        spawns.push(start);
-      }
-    }
-    
-    return spawns;
-  }
-  
-  /**
-   * Compute all positions reachable by enemies from spawn positions.
-   */
-  private computeEnemyReachablePositions(map: TileMap, spawns: { x: number; y: number }[]): Set<string> {
-    const visited = new Set<string>();
-    const queue: { x: number; y: number }[] = [];
-    
-    for (const spawn of spawns) {
-      const key = `${spawn.x},${spawn.y}`;
-      if (!visited.has(key)) {
-        visited.add(key);
-        queue.push(spawn);
-      }
-    }
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const neighbors = this.getEnemyReachableNeighbors(map, current);
-      
-      for (const next of neighbors) {
-        const key = `${next.x},${next.y}`;
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push(next);
-        }
-      }
-    }
-    
-    return visited;
-  }
-  
-  /**
-   * Get positions reachable by enemy from current position (no digging).
-   */
-  private getEnemyReachableNeighbors(map: TileMap, pos: { x: number; y: number }): { x: number; y: number }[] {
-    const neighbors: { x: number; y: number }[] = [];
-    const { x, y } = pos;
-    
-    const onLadder = map.isClimbable(x, y);
-    const onBar = map.isBar(x, y);
-    const hasSupport = onLadder || onBar || map.isSupport(x, y + 1) || y + 1 >= map.height;
-    
-    if (hasSupport) {
-      // Walk left/right
-      for (const dx of [-1, 1]) {
-        const nx = x + dx;
-        if (nx >= 0 && nx < map.width && !map.isSolid(nx, y)) {
-          // Simulate falling
-          let ny = y;
-          while (ny < map.height - 1) {
-            if (map.isClimbable(nx, ny) || map.isBar(nx, ny) || map.isSupport(nx, ny + 1)) break;
-            ny++;
-          }
-          neighbors.push({ x: nx, y: ny });
-        }
-      }
-    }
-    
-    // Climb up (must be on ladder)
-    if (onLadder && y > 0 && !map.isSolid(x, y - 1)) {
-      neighbors.push({ x, y: y - 1 });
-    }
-    
-    // Climb down
-    if ((onLadder || map.isClimbable(x, y + 1)) && y < map.height - 1 && !map.isSolid(x, y + 1)) {
-      neighbors.push({ x, y: y + 1 });
-    }
-    
-    return neighbors;
-  }
-  
-  private isValidGoldSpot(map: TileMap, x: number, y: number): boolean {
-    if (map.getTile(x, y) !== TileType.EMPTY) return false;
-    
-    // Need support below
-    const below = map.getTile(x, y + 1);
-    const hasSupport = below === TileType.BRICK || 
-                       below === TileType.BRICK_HARD || 
-                       below === TileType.LADDER ||
-                       below === TileType.BRICK_TRAP;
-    if (!hasSupport) return false;
-    
-    // Must be reachable - either:
-    // 1. On a ladder
-    // 2. Has walkable approach from left or right
-    // 3. Can be reached by falling from above
-    
-    const onLadder = map.getTile(x, y) === TileType.LADDER || below === TileType.LADDER;
-    if (onLadder) return true;
-    
-    // Check if there's a walkable approach from either side
-    const leftClear = x > 0 && !map.isSolid(x - 1, y);
-    const rightClear = x < map.width - 1 && !map.isSolid(x + 1, y);
-    const hasApproach = leftClear || rightClear;
-    
-    // Check if there's a platform to walk from (support at neighbor position)
-    const leftHasSupport = x > 0 && (map.isSupport(x - 1, y + 1) || map.isClimbable(x - 1, y));
-    const rightHasSupport = x < map.width - 1 && (map.isSupport(x + 1, y + 1) || map.isClimbable(x + 1, y));
-    
-    if (hasApproach && (leftHasSupport || rightHasSupport)) return true;
-    
-    // Check if reachable by falling through from above (via pole or empty space)
-    for (let checkY = y - 1; checkY >= 0; checkY--) {
-      const tile = map.getTile(x, checkY);
-      if (tile === TileType.POLE || tile === TileType.LADDER) {
-        return true; // Can drop from pole/ladder above
-      }
-      if (map.isSolid(x, checkY)) {
-        break; // Blocked by solid tile
-      }
-    }
-    
-    return false;
-  }
-  
-  /**
-   * Compute all positions reachable from player start using BFS.
-   * This is a simplified version that doesn't consider exit ladders.
-   */
-  private computeReachablePositions(map: TileMap): Set<string> {
-    const visited = new Set<string>();
-    const queue: { x: number; y: number }[] = [map.playerStart];
-    visited.add(`${map.playerStart.x},${map.playerStart.y}`);
-    
-    while (queue.length > 0) {
-      const { x, y } = queue.shift()!;
-      
-      const onLadder = map.isClimbable(x, y);
-      const onBar = map.isBar(x, y);
-      const hasSupport = onLadder || onBar || map.isSupport(x, y + 1) || y + 1 >= map.height;
-      
-      // Walk left/right with falling
-      if (hasSupport) {
-        for (const dx of [-1, 1]) {
-          const nx = x + dx;
-          if (nx >= 0 && nx < map.width && !map.isSolid(nx, y)) {
-            // Simulate falling
-            let ny = y;
-            while (ny < map.height - 1) {
-              if (map.isClimbable(nx, ny) || map.isBar(nx, ny) || map.isSupport(nx, ny + 1)) break;
-              ny++;
-            }
-            const key = `${nx},${ny}`;
-            if (!visited.has(key)) {
-              visited.add(key);
-              queue.push({ x: nx, y: ny });
-            }
-          }
-        }
-        
-        // Dig left/right
-        for (const dx of [-1, 1]) {
-          const nx = x + dx;
-          const ny = y + 1;
-          if (map.canDig(nx, ny)) {
-            // After digging, we can reach the dug hole
-            const key = `${nx},${ny}`;
-            if (!visited.has(key)) {
-              visited.add(key);
-              queue.push({ x: nx, y: ny });
-            }
-          }
-        }
-      }
-      
-      // Climb up (must be on ladder)
-      if (onLadder && y > 0 && !map.isSolid(x, y - 1)) {
-        const key = `${x},${y - 1}`;
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push({ x, y: y - 1 });
-        }
-      }
-      
-      // Climb down
-      if ((onLadder || map.isClimbable(x, y + 1)) && y < map.height - 1 && !map.isSolid(x, y + 1)) {
-        const key = `${x},${y + 1}`;
-        if (!visited.has(key)) {
-          visited.add(key);
-          queue.push({ x, y: y + 1 });
-        }
-      }
-    }
-    
-    return visited;
-  }
-  
-  private placeEnemies(map: TileMap): void {
-    const [baseMin, baseMax] = this.difficulty.enemies;
-    
-    // Scale enemy count with level progression
-    // Every 5 levels, add 1 to both min and max (capped)
-    const levelBonus = Math.floor((this.levelNumber - 1) / 5);
-    
-    // Max enemies caps based on difficulty:
-    // Easy: max 4, Normal: max 5, Hard: max 6, Ninja: max 7
-    const maxCaps: { [key: string]: number } = {
-      easy: 4,
-      normal: 5,
-      hard: 6,
-      ninja: 7
-    };
-    const maxCap = maxCaps[this.difficultyKey] || 5;
-    
-    const minEnemies = Math.min(baseMin + levelBonus, maxCap - 1);
-    const maxEnemies = Math.min(baseMax + levelBonus, maxCap);
-    const enemyCount = this.rng.range(minEnemies, maxEnemies + 1);
-    
-    const validSpots: { x: number; y: number }[] = [];
-    
-    for (let y = 0; y < map.height - 1; y++) {
-      for (let x = 0; x < map.width; x++) {
-        if (this.isValidEnemySpot(map, x, y)) {
-          // Must be far from player start
-          const dist = Math.abs(x - map.playerStart.x) + Math.abs(y - map.playerStart.y);
-          if (dist > 8) {
-            validSpots.push({ x, y });
-          }
-        }
-      }
-    }
-    
-    this.rng.shuffle(validSpots);
-    
-    // Place enemies ensuring no duplicates and minimum spacing
-    const placedPositions: Set<string> = new Set();
-    for (const spot of validSpots) {
-      if (map.enemyStarts.length >= enemyCount) break;
-      
-      const key = `${spot.x},${spot.y}`;
-      if (placedPositions.has(key)) continue;
-      
-      // Ensure minimum spacing from other enemies (at least 3 tiles apart)
-      const tooClose = map.enemyStarts.some(e => 
-        Math.abs(e.x - spot.x) + Math.abs(e.y - spot.y) < 3
-      );
-      if (tooClose) continue;
-      
-      placedPositions.add(key);
-      map.enemyStarts.push(spot);
-    }
-  }
-  
-  private isValidEnemySpot(map: TileMap, x: number, y: number): boolean {
-    const tile = map.getTile(x, y);
-    if (tile !== TileType.EMPTY && tile !== TileType.LADDER) return false;
-    
-    const below = map.getTile(x, y + 1);
-    return below === TileType.BRICK || 
-           below === TileType.BRICK_HARD || 
-           below === TileType.LADDER;
-  }
-  
-  private addExitLadders(map: TileMap): void {
-    // In classic Lode Runner, the exit ladder is hidden until all gold is collected.
-    // The exit ladder extends from the top of an existing ladder to row 0.
-    // IMPORTANT: No ladder should visibly reach row 0-3 at level start.
-    
-    const EXIT_HIDDEN_ROWS = 4; // Rows 0-3 are always hidden initially
-    
-    // First, clear any ladders that might have been placed in the top rows
-    // (they should all be hidden exit ladders)
-    for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
-      for (let x = 0; x < map.width; x++) {
-        if (map.getTile(x, y) === TileType.LADDER) {
-          map.setTile(x, y, TileType.EMPTY);
-        }
-      }
-    }
-    
-    // Find existing ladders that reach the upper area (row 4-6, just below hidden zone)
-    // Only consider positions where the exit path (rows 0-3) is clear of poles/obstacles
-    // AND the ladder extends far enough down to be well-connected
-    const exitCandidates: { x: number; topY: number; ladderLength: number }[] = [];
-    for (let x = 2; x < map.width - 2; x++) {
-      // Check if exit path is clear (no poles or solid blocks in rows 0-3)
-      let pathClear = true;
-      for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
-        const tile = map.getTile(x, y);
-        if (tile === TileType.POLE || tile === TileType.BRICK || 
-            tile === TileType.BRICK_HARD || tile === TileType.BRICK_TRAP) {
-          pathClear = false;
-          break;
-        }
-      }
-      if (!pathClear) continue;
-      
-      // Find the topmost ladder segment at this x and measure its length
-      let topY = -1;
-      let ladderLength = 0;
-      for (let y = EXIT_HIDDEN_ROWS; y < map.height; y++) {
-        if (map.getTile(x, y) === TileType.LADDER) {
-          if (topY === -1) topY = y;
-          ladderLength++;
-        } else if (topY !== -1) {
-          break; // End of contiguous ladder
-        }
-      }
-      
-      // Only consider ladders that start near the top and are long enough
-      // to likely connect to the rest of the level
-      if (topY !== -1 && topY <= EXIT_HIDDEN_ROWS + 2 && ladderLength >= 4) {
-        exitCandidates.push({ x, topY, ladderLength });
-      }
-    }
-    
-    // Sort by ladder length (longer = better connected), then by topY
-    exitCandidates.sort((a, b) => {
-      if (b.ladderLength !== a.ladderLength) return b.ladderLength - a.ladderLength;
-      return a.topY - b.topY;
-    });
-    
-    let exitX: number;
-    
-    if (exitCandidates.length > 0) {
-      // Pick from top candidates with randomness
-      const candidateCount = Math.min(3, exitCandidates.length);
-      const pickIdx = this.rng.range(0, candidateCount);
-      exitX = exitCandidates[pickIdx].x;
-    } else {
-      // No suitable ladder found - find a clear column near center
-      exitX = Math.floor(map.width / 2);
-      
-      // Search for a column that's clear of poles in the exit zone
-      for (let dx = 0; dx < map.width / 2; dx++) {
-        for (const offset of [dx, -dx]) {
-          const testX = exitX + offset;
-          if (testX < 2 || testX >= map.width - 2) continue;
-          
-          let clear = true;
-          for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
-            const tile = map.getTile(testX, y);
-            if (tile === TileType.POLE || tile === TileType.BRICK ||
-                tile === TileType.BRICK_HARD || tile === TileType.BRICK_TRAP) {
-              clear = false;
-              break;
-            }
-          }
-          
-          if (clear) {
-            exitX = testX;
-            break;
-          }
-        }
-      }
-      
-      // Clear any poles in the exit path (safety measure)
-      for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
-        if (map.getTile(exitX, y) === TileType.POLE) {
-          map.setTile(exitX, y, TileType.EMPTY);
-        }
-      }
-      
-      // Make sure there's a ladder leading up to the exit zone
-      for (let y = EXIT_HIDDEN_ROWS; y < EXIT_HIDDEN_ROWS + 4; y++) {
-        if (map.getTile(exitX, y) !== TileType.LADDER) {
-          map.setTile(exitX, y, TileType.LADDER);
-        }
-      }
-    }
-    
-    // Create hidden exit ladder from row 0 to row 3 (the hidden zone)
-    for (let y = 0; y < EXIT_HIDDEN_ROWS; y++) {
-      map.exitLadders.push({ x: exitX, y });
-    }
-  }
-  
-  private generateFallback(): TileMap {
-    const map = new TileMap();
-    
-    // Ground
-    for (let x = 0; x < map.width; x++) {
-      map.setTile(x, map.height - 1, TileType.BRICK);
-    }
-    
-    // Platform 1 (middle height)
-    for (let x = 3; x < 18; x++) {
-      map.setTile(x, 10, TileType.BRICK);
-    }
-    
-    // Platform 2 (higher)
-    for (let x = 10; x < 25; x++) {
-      map.setTile(x, 6, TileType.BRICK);
-    }
-    
-    // Ladders
-    for (let y = 10; y < map.height - 1; y++) {
-      map.setTile(8, y, TileType.LADDER);
-    }
-    for (let y = 6; y < 10; y++) {
-      map.setTile(14, y, TileType.LADDER);
-    }
-    // Add visible ladder leading up to row 4 (NOT to top - exit is hidden)
-    for (let y = 4; y < 6; y++) {
-      map.setTile(20, y, TileType.LADDER);
-    }
-    // Hidden exit ladder from row 0-3 (revealed when all gold collected)
-    for (let y = 0; y < 4; y++) {
-      map.exitLadders.push({ x: 20, y });
-    }
-    
-    // Poles
-    for (let x = 18; x < 24; x++) {
-      map.setTile(x, 10, TileType.POLE);
-    }
-    
-    // Player start
-    map.playerStart = { x: 3, y: map.height - 2 };
-    
-    // Gold
-    const goldSpots = [
-      { x: 5, y: 9 }, { x: 10, y: 9 }, { x: 15, y: 9 },
-      { x: 12, y: 5 }, { x: 18, y: 5 }, { x: 22, y: 5 }
-    ];
-    for (const spot of goldSpots) {
-      map.setTile(spot.x, spot.y, TileType.GOLD);
-      map.goldPositions.push(spot);
-    }
-    
-    // Enemies
-    map.enemyStarts.push({ x: 22, y: map.height - 2 });
-    map.enemyStarts.push({ x: 16, y: 9 });
-    
-    return map;
+
+  /** Last resort: fixed frame with seeded gold. Always solvable. */
+  private fixedFallback(): TileMap {
+    const m = new TileMap(), W = m.width, H = m.height, rng = this.rng;
+    for (let x = 0; x < W; x++) { m.setTile(x, H - 1, T.BRICK); m.setTile(x, 11, T.BRICK); m.setTile(x, 7, T.BRICK); }
+    for (const [x, y0, y1] of [[4, 11, 14], [23, 11, 14], [13, 7, 10]]) for (let y = y0; y <= y1; y++) m.setTile(x, y, T.LADDER);
+    m.playerStart = { x: 2, y: H - 2 };
+    for (let y = 0; y < 7; y++) m.exitLadders.push({ x: 13, y });
+    const spots = [[8, 14], [18, 14], [2, 10], [9, 10], [20, 10], [25, 10], [5, 6], [21, 6]];
+    for (const [x, y] of rng.shuffle(spots).slice(0, 6)) { m.setTile(x, y, T.GOLD); m.goldPositions.push({ x, y }); }
+    m.enemyStarts.push({ x: 26, y: 6 });
+    m.goldDropCells = analyzeLevel(m, [], 0).analysis!.dropCells;
+    return m;
   }
 }
