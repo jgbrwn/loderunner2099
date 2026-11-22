@@ -76,7 +76,7 @@ export class FieldView {
     this.root.removeAll(true);
     this.fxImgs = []; this.particles = [];
     const bgFill = s.add.rectangle(0, 0, FIELD_W, FIELD_H, mix(this.theme.background, 0x000000, 0.25)).setOrigin(0);
-    this.bgLayer = s.add.container(0, 0);
+    this.bgLayer = s.add.container(0, 0).setAlpha(0.75);
     this.bg?.destroy();
     this.bg = new Background(s, this.bgLayer, this.theme, FIELD_W, FIELD_H, this.reduced);
     this.rt = s.add.renderTexture(0, 0, FIELD_W, FIELD_H).setOrigin(0);

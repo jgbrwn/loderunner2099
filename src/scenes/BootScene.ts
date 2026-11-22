@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { THEMES } from '../config';
+import { TileGraphics } from '../graphics/TileGraphics';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -24,6 +26,8 @@ export class BootScene extends Phaser.Scene {
   }
   
   create(): void {
+    // Pre-build the default theme atlas so the first level starts without a hitch.
+    new TileGraphics(this).generateTextures(THEMES.cyber);
     // Check for URL parameters
     const params = new URLSearchParams(window.location.hash.slice(1));
     const seed = params.get('seed');

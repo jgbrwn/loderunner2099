@@ -70,7 +70,7 @@ export class Hud {
     t.score.setText(String(d.score).padStart(7, '0'));
     // lives
     let x = 150;
-    const shown = Math.min(d.lives, 7);
+    const shown = d.lives > 7 ? 1 : Math.max(0, d.lives);
     for (let i = 0; i < shown; i++) icon(d.livesIcon ?? 'life_p1', x + i * 14, cy);
     t.livesX.setPosition(x + shown * 14 + 2, cy).setText(d.lives > 7 ? 'x' + d.lives : d.lives <= 0 ? '--' : '');
     t.levelL.setText('LV'); t.level.setText(String(d.level).padStart(2, '0'));

@@ -89,7 +89,7 @@ function px(ctx: Ctx, x: number, y: number, w: number, h: number, c: number, a =
 }
 
 function drawBrick(ctx: Ctx, theme: Theme, variant: number, trap = false): void {
-  const base = theme.brick;
+  const base = tint(theme.brick, 1.12);
   const mortar = shade(base, 0.35);
   const rng = new Rng(17 + variant * 101);
   px(ctx, 0, 0, 32, 32, mortar);
@@ -161,9 +161,9 @@ function drawLadder(ctx: Ctx, color: number, exit = false): void {
 }
 
 function drawPole(ctx: Ctx, theme: Theme): void {
-  const c = mix(theme.pole, 0xffffff, 0.15);
-  px(ctx, 0, 2, 32, 6, theme.ladder, 0.1);
-  px(ctx, 0, 3, 32, 4, theme.ladder, 0.12);
+  const c = mix(mix(theme.pole, theme.ladder, 0.25), 0xffffff, 0.3);
+  px(ctx, 0, 2, 32, 6, theme.ladder, 0.12);
+  px(ctx, 0, 3, 32, 4, theme.ladder, 0.16);
   px(ctx, 0, 4, 32, 2, c);
   px(ctx, 0, 4, 32, 1, tint(c, 1.7));
   px(ctx, 0, 6, 32, 1, shade(c, 0.45));
