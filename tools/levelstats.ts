@@ -29,7 +29,7 @@ for (const diff of ['easy', 'normal', 'hard', 'ninja']) {
     if (!r.solvable) { unsolved++; if (unsolved <= 2) console.log('UNSOLVED', diff, seed, r.debug); }
     if (stats!.fallback) fb++;
     for (const [k, v] of Object.entries(stats as LevelStats)) sum[k] = (sum[k] ?? 0) + (v as number);
-    if (s < nRender) console.log(`${diff} ${seed} ${r.debug}\n${renderAscii(map)}`);
+    if (s < nRender) console.log(`${diff} ${seed} ${(gen as any).lastArch} ${r.debug}\n${renderAscii(map)}`);
   }
   times.sort((a, b) => a - b);
   const avg = Object.entries(sum).map(([k, v]) => `${k}=${(v / nSeeds).toFixed(2)}`).join(' ');

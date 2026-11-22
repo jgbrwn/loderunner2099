@@ -44,6 +44,7 @@ export class LevelGenerator {
   private difficultyKey: string;
   private lastResult: SolvabilityResult | null = null;
   public lastStats: LevelStats | null = null;
+  public lastArch = '';
 
   constructor(seed: string | number, difficultyKey: string = 'normal', levelNumber: number = 1) {
     this.rng = new SeededRandom(seed);
@@ -133,54 +134,122 @@ export class LevelGenerator {
       for (let x = x0; x < x0 + len; x++) set(x, H - 1, T.BRICK_HARD);
     }
 
-    // floors
+    // floors: layout archetype chosen per seed (difficulty-weighted), produced as brick segments
     const minTop = p.assisted ? 6 : 4;
-    const floors: number[] = [];
-    for (let y = H - 1; ;) {
-      let next = y - rng.pick(p.c > 0.7 ? [3, 3, 3, 4, 2] : [3, 3, 4, 4]);
-      if (next < minTop) { if (y - minTop >= 3) next = minTop; else break; }
-      floors.push(next); y = next;
-    }
-    const gapsByFloor = new Map<number, [number, number][]>();
-    for (const fy of floors) {
-      const x0 = rng.chance(0.5) ? 0 : rng.range(1, 4);
-      const x1 = rng.chance(0.5) ? W - 1 : W - 1 - rng.range(1, 4);
-      for (let x = x0; x <= x1; x++) set(x, fy, T.BRICK);
-      const gaps: [number, number][] = [];
-      for (let k = rng.range(1, 2 + Math.round(p.c * 2)); k > 0; k--) {
-        const gw = rng.pick([1, 1, 2, 2, 3, 4]);
-        const gx = rng.range(x0 + 3, x1 - 2 - gw);
-        if (gx < x0 + 3 || gaps.some(([a, b]) => gx <= b + 3 && gx + gw - 1 >= a - 3)) continue;
-        for (let x = gx; x < gx + gw; x++) set(x, fy, T.EMPTY);
-        gaps.push([gx, gx + gw - 1]);
+    type Seg = { y: number; x0: number; x1: number };
+    const segs: Seg[] = [];
+    const sp = () => rng.pick(p.c > 0.7 ? [2, 3, 3, 3, 4] : [3, 3, 3, 4, 4]);
+    const stack = (yStart: number, f: (y: number, i: number) => void) => {
+      for (let y = yStart, i = 0; ; i++) {
+        let next = y - sp();
+        if (next < minTop) { if (y - minTop >= 3) next = minTop; else break; }
+        f(next, i); y = next;
       }
-      gapsByFloor.set(fy, gaps);
-      if (rng.chance(0.2 + 0.3 * p.c)) {
-        const len = rng.range(2, 6), hx = rng.range(x0, Math.max(x0 + 1, x1 - len));
-        for (let x = hx; x < hx + len; x++) if (get(x, fy) === T.BRICK) set(x, fy, T.BRICK_HARD);
+    };
+    const withGaps = (y: number, x0: number, x1: number, n: number) => {
+      let a = x0;
+      for (let k = 0; k < n; k++) {
+        const gw = rng.pick([1, 1, 2, 2, 3, 4]), gx = rng.range(a + 3, x1 - 2 - gw);
+        if (gx < a + 3) break;
+        segs.push({ y, x0: a, x1: gx - 1 }); a = gx + gw;
+      }
+      segs.push({ y, x0: a, x1 });
+    };
+    const archetypes = ['classic', 'terraced', 'tower', 'islands', 'pyramid'];
+    const weights = [3 - p.c * 2, 1 + p.c * 2, 2, p.c * 3, 2 - p.c];
+    let roll = rng.next() * weights.reduce((s, w) => s + w, 0), arch = 'classic';
+    for (let i = 0; i < weights.length; i++) { roll -= weights[i]; if (roll < 0) { arch = archetypes[i]; break; } }
+    this.lastArch = arch;
+    let towerCols: number[] = [];
+    if (arch === 'classic') {
+      stack(H - 1, y => {
+        const x0 = rng.chance(0.5) ? 0 : rng.range(1, 4), x1 = rng.chance(0.5) ? W - 1 : W - 1 - rng.range(1, 4);
+        withGaps(y, x0, x1, rng.range(1, 2 + Math.round(p.c * 2)));
+      });
+    } else if (arch === 'terraced') {
+      const nb = rng.range(2, 4), cuts = [0];
+      for (let b = 1; b < nb; b++) cuts.push(Math.round((W * b) / nb) + rng.range(-2, 3));
+      cuts.push(W);
+      for (let b = 0; b < nb; b++) {
+        const x0 = cuts[b] + (b && rng.chance(0.4) ? 1 : 0), x1 = cuts[b + 1] - 1;
+        stack(H - 1 - rng.range(0, 2), y => withGaps(y, x0, x1, rng.chance(0.3) ? 1 : 0));
+      }
+    } else if (arch === 'tower') {
+      towerCols = p.c > 0.6 && rng.chance(0.6) ? [rng.range(7, 11), rng.range(17, 21)] : [rng.range(9, 19)];
+      const bounds = [-1, ...towerCols, W];
+      for (let b = 0; b + 1 < bounds.length; b++) {
+        const x0 = bounds[b] + 1, x1 = bounds[b + 1] - 1;
+        if (x1 - x0 < 2) continue;
+        stack(H - 1 - rng.range(0, 2), y => {
+          const s0 = b === 0 && rng.chance(0.4) ? x0 + rng.range(1, 4) : x0;
+          const s1 = b === bounds.length - 2 && rng.chance(0.4) ? x1 - rng.range(1, 4) : x1;
+          withGaps(y, s0, s1, rng.chance(0.4) ? 1 : 0);
+        });
+      }
+    } else if (arch === 'islands') {
+      stack(H - 1, y => {
+        for (let x = rng.range(0, 3); x < W - 2;) {
+          const len = rng.range(3, 9), yy = Math.max(minTop, Math.min(H - 3, y + rng.range(-1, 2)));
+          segs.push({ y: yy, x0: x, x1: Math.min(W - 1, x + len - 1) });
+          x += len + rng.range(2, 5);
+        }
+      });
+    } else {
+      const inverted = rng.chance(0.35), cx = rng.range(11, 17);
+      const rows: number[] = [];
+      stack(H - 1, y => rows.push(y));
+      rows.forEach((y, i) => {
+        const k = inverted ? rows.length - 1 - i : i;
+        const half = Math.max(3, 13 - k * rng.range(2, 4));
+        withGaps(y, Math.max(0, cx - half), Math.min(W - 1, cx + half), rng.chance(0.4) ? 1 : 0);
+        if (!inverted && rng.chance(0.5)) { // side ledges
+          const side = rng.chance(0.5), len = rng.range(3, 6);
+          const a = side ? 0 : W - len, yy = y - 1;
+          if (side ? cx - half > len + 2 : cx + half < W - len - 2) segs.push({ y: yy, x0: a, x1: a + len - 1 });
+        }
+      });
+    }
+    const rowsUsed = [...new Set(segs.map(s => s.y))].sort((a, b) => b - a);
+    for (const s of segs) {
+      for (let x = s.x0; x <= s.x1; x++) set(x, s.y, T.BRICK);
+      if (s.x1 - s.x0 >= 5 && rng.chance(0.15 + 0.25 * p.c)) {
+        const len = rng.range(2, 5), hx = rng.range(s.x0, s.x1 - len + 2);
+        for (let x = hx; x < hx + len && x <= s.x1; x++) set(x, s.y, T.BRICK_HARD);
       }
     }
+    const floors = rowsUsed;
     const top = floors.length ? floors[floors.length - 1] : H - 1;
 
-    // ladders between consecutive floors (flush with the upper floor, down to support)
+    // ladders: from segments down to support (flush with the segment); repair pass adds more
     const ladderCols: number[] = [];
     const placeLadder = (x: number, y0: number) => {
       set(x, y0, T.LADDER);
       for (let y = y0 + 1; y < H && !isBrick(x, y) && get(x, y) !== T.BRICK_TRAP; y++) set(x, y, T.LADDER);
       ladderCols.push(x);
     };
+    for (const tc of towerCols) placeLadder(tc, top);
     const levels = [H - 1, ...floors];
-    for (let i = 1; i < levels.length; i++) {
-      const yu = levels[i];
-      let k = 1 + (rng.chance(p.ld) ? 1 : 0) + (rng.chance(p.ld * 0.6) ? 1 : 0);
-      for (let tries = 0; tries < 30 && k > 0; tries++) {
-        const x = rng.range(1, W - 1);
-        if (get(x, yu - 1) !== T.EMPTY || get(x, yu) === T.BRICK_HARD) continue;
+    const segOrder = rng.shuffle(segs.slice());
+    for (const s of segOrder) {
+      const wide = s.x1 - s.x0 + 1;
+      let k = (rng.chance(0.55 + p.ld * 0.4) ? 1 : 0) + (wide >= 14 && rng.chance(p.ld * 0.7) ? 1 : 0);
+      for (let tries = 0; tries < 12 && k > 0; tries++) {
+        const x = rng.range(Math.max(1, s.x0), Math.min(W - 1, s.x1 + 1));
+        if (get(x, s.y - 1) !== T.EMPTY || get(x, s.y) !== T.BRICK) continue;
         let near = false;
-        for (let y = yu; y < levels[i - 1]; y++) for (let dx = -2; dx <= 2; dx++) if (get(x + dx, y) === T.LADDER) near = true;
+        for (let y = s.y - 1; y < Math.min(H, s.y + 4); y++) for (let dx = -2; dx <= 2; dx++) if (get(x + dx, y) === T.LADDER) near = true;
         if (near) continue;
-        placeLadder(x, yu); k--;
+        placeLadder(x, s.y); k--;
       }
+    }
+
+    // poles across same-row gaps between segments (at standing height)
+    const gapsByFloor = new Map<number, [number, number][]>();
+    for (const y of rowsUsed) {
+      const row = segs.filter(s => s.y === y).sort((a, b) => a.x0 - b.x0);
+      const gaps: [number, number][] = [];
+      for (let i = 1; i < row.length; i++) if (row[i].x0 - row[i - 1].x1 - 1 <= 7) gaps.push([row[i - 1].x1 + 1, row[i].x0 - 1]);
+      gapsByFloor.set(y, gaps);
     }
 
     // poles across gaps (at standing height)
@@ -275,11 +344,22 @@ export class LevelGenerator {
         bad.push({ x, y });
       }
       if (!bad.length) break;
-      // fix the lowest areas first (they are what upper areas drop into)
-      const lowY = Math.max(...bad.map(b => b.y));
-      const row = bad.filter(b => b.y === lowY);
-      const c = rng.pick(row);
-      placeLadder(c.x, c.y + 1);
+      // one ladder per contiguous run of bad cells, on the two lowest bad rows
+      let placed = 0;
+      const ys = [...new Set(bad.map(b => b.y))].sort((a, b) => b - a).slice(0, 2);
+      for (const yy of ys) {
+        const row = bad.filter(b => b.y === yy);
+        for (let i = 0; i < row.length;) {
+          let j = i;
+          while (j + 1 < row.length && row[j + 1].x === row[j].x + 1) j++;
+          const c = row[rng.range(i, j + 1)];
+          let near = false;
+          for (let dy = 0; dy < 4; dy++) for (const dx of [-1, 1]) if (get(c.x + dx, c.y + dy) === T.LADDER) near = true;
+          if (!near && get(c.x, c.y + 1) === T.BRICK) { placeLadder(c.x, c.y + 1); placed++; }
+          i = j + 1;
+        }
+      }
+      if (!placed) iter = 9;
     }
     const main = comp[start];
 
