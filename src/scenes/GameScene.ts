@@ -20,7 +20,7 @@ export interface GameInitData { difficulty?: string; seed?: string; mode?: GameM
 
 /** One playfield: a World + its renderer + HUD. Single/co-op use one board; versus uses two (same level). */
 interface Board {
-  world: World; view: FieldView; hud: Hud; layout: FieldLayout;
+  world: World; view: FieldView; hud: Hud | null; layout: FieldLayout;
   /** Input slot of each sim player on this board. */
   inputs: number[];
   scores: number[];   // per input slot (session total)
@@ -104,7 +104,7 @@ export class GameScene extends Phaser.Scene {
       const layout = layouts[i];
       this.boards.push({
         world: null as unknown as World, layout,
-        view: new FieldView(this, layout, this.theme), hud: new Hud(this, layout.hud, this.theme),
+        view: new FieldView(this, layout, this.theme), hud: this.mode === 'versus' ? null : new Hud(this, layout.hud, this.theme),
         inputs: this.mode === 'versus' ? [i] : this.mode === 'coop' ? [0, 1] : [0],
         scores: [0, 0], acc: 0, waiting: false, wins: 0,
       });
@@ -131,12 +131,14 @@ export class GameScene extends Phaser.Scene {
 
     this.newLevel();
     this.updateShareURL();
+    if (this.mode === 'versus') this.buildVersusHud();
     if (this.mode === 'versus') this.showMessage('VERSUS — FIRST TO CLEAR WINS', 2200);
   }
 
   private cleanup(): void {
     this.crtEffect?.destroy();
-    for (const b of this.boards) { b.view.destroy(); b.hud.destroy(); }
+    for (const b of this.boards) { b.view.destroy(); b.hud?.destroy(); }
+    this.vsHud?.destroy(); this.vsHud = null;
     this.boards = [];
     this.menu?.destroy(); this.menu = null;
     this.messageTimer = null;
@@ -332,7 +334,8 @@ export class GameScene extends Phaser.Scene {
     this.theme = THEMES[this.themeKeys[this.themeIndex]];
     Settings.theme = this.themeKeys[this.themeIndex];
     this.cameras.main.setBackgroundColor(this.theme.background);
-    for (const b of this.boards) { b.view.setTheme(this.theme); b.hud.setTheme(this.theme); }
+    for (const b of this.boards) { b.view.setTheme(this.theme); b.hud?.setTheme(this.theme); }
+    if (this.mode === 'versus') this.buildVersusHud();
     this.crtEffect.applyTheme(this.theme);
     getSoundManager().playMenuSelect();
   }
@@ -474,6 +477,28 @@ export class GameScene extends Phaser.Scene {
     this.messageTimer = duration ? this.time.delayedCall(duration, () => this.messageText.setText('')) : null;
   }
 
+  private vsHud: Phaser.GameObjects.Container | null = null;
+  private vsTexts: Phaser.GameObjects.Text[] = [];
+  /** Versus: one large shared bar above both fields (P1 left, level centre, P2 right) — readable on a TV. */
+  private buildVersusHud(): void {
+    this.vsHud?.destroy();
+    const [a, b] = this.boards.map(x => x.layout);
+    const fw = b.hud.w, x0 = a.x, x1 = b.x + fw, H = 40, y = a.y - H - 8;
+    const th = this.theme;
+    const c = this.add.container(0, 0).setDepth(50);
+    const g = this.add.graphics();
+    g.fillStyle(th.hudBg, 0.95).fillRoundedRect(x0, y, x1 - x0, H, 6);
+    g.lineStyle(1, th.hudText, 0.7).strokeRoundedRect(x0, y, x1 - x0, H, 6);
+    const st = (color: string) => ({ fontFamily: 'monospace', fontSize: '20px', fontStyle: 'bold', color, stroke: '#000000', strokeThickness: 3 });
+    this.vsTexts = [
+      this.add.text(x0 + 12, y + H / 2, '', st('#00ff88')).setOrigin(0, 0.5),
+      this.add.text(x1 - 12, y + H / 2, '', st('#ffcc00')).setOrigin(1, 0.5),
+      this.add.text((x0 + x1) / 2, y + H / 2, '', st('#ffffff')).setOrigin(0.5, 0.5),
+    ];
+    c.add([g, ...this.vsTexts]);
+    this.vsHud = c;
+  }
+
   private updateHUD(): void {
     const sm = getSoundManager();
     const music = sm.getMusicMode();
@@ -483,11 +508,13 @@ export class GameScene extends Phaser.Scene {
       const base = { level: this.level, goldTotal: w.golds.length, goldLeft: w.goldRemaining(), difficulty: diff, seed: this.seedCode, music };
       if (this.mode === 'versus') {
         const p = b.inputs[0];
-        b.hud.update({ ...base, score: b.scores[p], lives: -1, label: `P${p + 1}`, livesIcon: p ? 'life_p2' : 'life_p1', status: `WINS ${b.wins}` });
+        const t = this.vsTexts[p];
+        if (t) t.setText(`P${p + 1}  ${String(b.scores[p]).padStart(6, '0')}   ◆ ${base.goldTotal - base.goldLeft}/${base.goldTotal}   ★ ${b.wins}`);
+        this.vsTexts[2]?.setText(`LV ${String(this.level).padStart(2, '0')}`);
       } else if (this.mode === 'coop') {
-        b.hud.update({ ...base, score: b.scores[0], score2: b.scores[1], lives: this.lives });
+        b.hud?.update({ ...base, score: b.scores[0], score2: b.scores[1], lives: this.lives });
       } else {
-        b.hud.update({ ...base, score: b.scores[0], lives: this.lives });
+        b.hud?.update({ ...base, score: b.scores[0], lives: this.lives });
       }
     }
   }

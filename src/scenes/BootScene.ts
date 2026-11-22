@@ -1,3 +1,4 @@
+import { CONFIG } from '../config';
 import Phaser from 'phaser';
 import { THEMES, DIFFICULTIES } from '../config';
 import { TileGraphics } from '../graphics/TileGraphics';
@@ -13,8 +14,8 @@ export class BootScene extends Phaser.Scene {
     
     // Show loading text
     const text = this.add.text(
-      this.cameras.main.centerX,
-      this.cameras.main.centerY,
+      CONFIG.GAME_WIDTH / 2,
+      CONFIG.GAME_HEIGHT / 2,
       'INITIALIZING...',
       {
         fontFamily: 'monospace',
