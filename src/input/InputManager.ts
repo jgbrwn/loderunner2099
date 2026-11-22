@@ -44,6 +44,8 @@ export const TWO_PLAYER_BINDINGS: KeyBindings[] = [
 export class KeyboardSource implements InputSource {
   private down = new Set<string>();
   private bound = new Set<string>();
+  /** keys pressed since the last frame: a tap shorter than one frame still registers */
+  private tapped = new Set<string>();
   /** When false, letter keys (KeyA..KeyZ) are ignored, e.g. while a seed text field is focused in a menu. */
   letters = true;
   constructor(private target: Window, public bindings: KeyBindings[] = DEFAULT_BINDINGS) {
@@ -55,17 +57,18 @@ export class KeyboardSource implements InputSource {
   setBindings(b: KeyBindings[]): void { this.bindings = b; this.rebuild(); }
   private rebuild() { this.bound = new Set(this.bindings.flatMap(b => Object.values(b).flat())); }
   private onDown = (e: KeyboardEvent) => {
-    this.down.add(e.code); this.down.add(e.key);
+    this.down.add(e.code); this.down.add(e.key); this.tapped.add(e.code); this.tapped.add(e.key);
     if ((this.bound.has(e.code) || this.bound.has(e.key)) && e.code !== 'Escape' && (e.target as HTMLElement | null)?.tagName !== 'INPUT') e.preventDefault();
   };
   private onUp = (e: KeyboardEvent) => { this.down.delete(e.code); this.down.delete(e.key); };
   private onBlur = () => this.down.clear();
+  endFrame(): void { this.tapped.clear(); }
   isDown(code: string): boolean { return this.down.has(code); }
   poll(player: number, out: InputActions): void {
     const b = this.bindings[player];
     if (!b) return;
     for (const a of ACTIONS) {
-      if (!out[a] && b[a].some(k => this.down.has(k) && (this.letters || !k.startsWith('Key')))) out[a] = true;
+      if (!out[a] && b[a].some(k => (this.down.has(k) || this.tapped.has(k)) && (this.letters || !k.startsWith('Key')))) out[a] = true;
     }
   }
   destroy(): void {
@@ -159,6 +162,7 @@ export class InputManager {
       for (const s of this.extra) s.poll(p, out);
       this.cur[p] = out;
     }
+    this.keyboard?.endFrame();
   }
   get(player: number): InputActions { return this.cur[player] ?? emptyActions(); }
   justPressed(player: number, a: Action): boolean { return !!this.cur[player]?.[a] && !this.prev[player]?.[a]; }
