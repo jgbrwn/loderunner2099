@@ -108,6 +108,7 @@ export class GameScene extends Phaser.Scene {
         inputs: this.mode === 'versus' ? [i] : this.mode === 'coop' ? [0, 1] : [0],
         scores: [0, 0], acc: 0, waiting: false, wins: 0,
       });
+      if (this.mode === 'versus') this.boards[i].view.playerIndexOffset = i;
     }
 
     const K = Phaser.Input.Keyboard.KeyCodes;
@@ -284,7 +285,7 @@ export class GameScene extends Phaser.Scene {
   private renderMenu(): void {
     if (!this.menuText) return;
     const title = this.menuPage === 'main' ? 'PAUSED' : 'OPTIONS';
-    const lines = this.menuItems.map((it, i) => (i === this.menuSel ? `▶ ${it.label()} ◀` : it.label()));
+    const lines = this.menuItems.map((it, i) => (i === this.menuSel ? `» ${it.label()} «` : it.label()));
     const foot = this.menuPage === 'main' ? `\n${this.helpText()}` : '';
     this.menuText.setText(`${title}\n\n${lines.join('\n')}\n${foot}`);
     this.menuText.setFontSize(this.menuPage === 'main' ? 20 : 18);

@@ -37,7 +37,7 @@ export class BootScene extends Phaser.Scene {
       // Direct to game with seed
       this.scene.start('GameScene', {
         seed: seed,
-        difficulty: diff || 'normal'
+        difficulty: diff || 'normal', mode: params.get('mode') || undefined
       });
     } else {
       // Go to menu

@@ -92,6 +92,9 @@ export class FieldView {
   }
 
   setLayout(l: FieldLayout): void { this.layout = l; this.root.setPosition(l.x, l.y).setScale(l.scale); }
+  /** Versus: a single-player board drawn as player 2. */
+  playerIndexOffset = 0;
+
   setTheme(theme: Theme): void { this.theme = theme; this.build(); }
   setReducedMotion(on: boolean): void { this.reduced = on; this.build(); }
 
@@ -344,7 +347,7 @@ export class FieldView {
       }
     });
     w.players.forEach((p, i) => {
-      const prefix = i === 1 ? 'p2_' : 'p1_';
+      const prefix = i + this.playerIndexOffset === 1 ? 'p2_' : 'p1_';
       const x = this.ax(p), y = this.ay(p);
       if (!p.alive) {
         const dt = time - (this.deathT[i] ?? time);
