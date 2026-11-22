@@ -39,7 +39,7 @@ describe('TVPairing', () => {
     expect(poll(input, 1).up).toBe(false); // released on disconnect
     vi.advanceTimersByTime(600);
     expect(FakeWS.last).not.toBe(ws);
-    expect(FakeWS.last.url).toBe('ws://x/ws/tv?code=ABCD');
+    expect(FakeWS.last.url).toMatch(/^ws:\/\/x\/ws\/tv\?code=ABCD&token=[0-9a-f]{32}$/);
     tv.close();
     vi.useRealTimers();
   });
