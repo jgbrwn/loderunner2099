@@ -5,7 +5,8 @@ Server pings every 20 s (WS ping frames, browsers answer automatically). Either 
 server replies `{"t":"pong"}` (use for RTT / keepalive). Reconnect with backoff on close.
 
 ## TV: `wss://HOST/ws/tv[?code=ABCD]`
-Pass `code` (from a previous session, e.g. sessionStorage) to reclaim the room if its TV dropped < 2 min ago;
+Pass `code` + `token` (TV secret in localStorage) to get the same code back: replaces a stale TV socket, or reclaims
+the room / its 7-day reservation (in memory; lost on restart). Without token: reclaim only if its TV dropped < 2 min ago;
 otherwise a new room is made. Room codes: 4 chars from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (case-insensitive).
 
 Server → TV:

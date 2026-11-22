@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"net/http"
@@ -25,8 +27,24 @@ const (
 	maxMsgBytes    = 4096
 	sendBuf        = 128
 	pingEvery      = 20 * time.Second
-	tvGraceTimeout = 2 * time.Minute // room kept this long after the TV disconnects
+	tvGraceTimeout = 2 * time.Minute    // room kept this long after the TV disconnects
+	reserveFor     = 7 * 24 * time.Hour // a token-owned code stays reserved this long after the room closes
+	maxReserved    = 20000
 )
+
+// reservation: a closed room's code, kept for the TV that owned it (identified by a secret token).
+type reservation struct {
+	token string // sha256 hex of the TV token
+	until time.Time
+}
+
+func hashToken(t string) string {
+	if t == "" || len(t) > 128 {
+		return ""
+	}
+	h := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(h[:])
+}
 
 type conn struct {
 	ws   *websocket.Conn
@@ -91,12 +109,14 @@ type Room struct {
 	tv     *conn
 	tvLeft time.Time
 	pads   map[int]*conn
+	token  string // sha256 of the owning TV's token ("" = anonymous)
 }
 
 type Hub struct {
-	mu      sync.Mutex
-	rooms   map[string]*Room
-	origins []string
+	mu       sync.Mutex
+	rooms    map[string]*Room
+	reserved map[string]reservation
+	origins  []string
 }
 
 func NewHub(origins []string) *Hub {
@@ -106,7 +126,7 @@ func NewHub(origins []string) *Hub {
 			o = append(o, s)
 		}
 	}
-	return &Hub{rooms: map[string]*Room{}, origins: o}
+	return &Hub{rooms: map[string]*Room{}, reserved: map[string]reservation{}, origins: o}
 }
 
 func msg(v map[string]any) []byte { b, _ := json.Marshal(v); return b }
@@ -129,38 +149,20 @@ func (h *Hub) accept(w http.ResponseWriter, r *http.Request) (*websocket.Conn, e
 	return ws, nil
 }
 
-// HandleTV: /ws/tv[?code=ABCD] — creates a room (or reclaims one whose TV dropped).
+// HandleTV: /ws/tv[?code=ABCD][&token=SECRET] — creates a room, or reclaims one: an anonymous room whose TV
+// dropped < 2 min ago, or (with the owning token) the same code for up to 7 days / replacing a stale TV conn.
 func (h *Hub) HandleTV(w http.ResponseWriter, r *http.Request) {
 	ws, err := h.accept(w, r)
 	if err != nil {
 		return
 	}
 	c := newConn(ws)
-	want := strings.ToUpper(r.URL.Query().Get("code"))
-
-	h.mu.Lock()
-	var room *Room
-	if old := h.rooms[want]; old != nil {
-		old.mu.Lock()
-		if old.tv == nil { // reclaim a room whose TV dropped
-			old.tv, room = c, old
-		}
-		old.mu.Unlock()
-	}
+	q := r.URL.Query()
+	room := h.claimRoom(c, strings.ToUpper(q.Get("code")), hashToken(q.Get("token")), time.Now())
 	if room == nil {
-		if len(h.rooms) >= maxRooms {
-			h.mu.Unlock()
-			ws.Close(websocket.StatusTryAgainLater, "server full")
-			return
-		}
-		code := newCode()
-		for h.rooms[code] != nil {
-			code = newCode()
-		}
-		room = &Room{Code: code, tv: c, pads: map[int]*conn{}}
-		h.rooms[code] = room
+		ws.Close(websocket.StatusTryAgainLater, "server full")
+		return
 	}
-	h.mu.Unlock()
 
 	ctx := r.Context()
 	go c.writeLoop(ctx)
@@ -188,6 +190,52 @@ func (h *Hub) HandleTV(w http.ResponseWriter, r *http.Request) {
 	}
 	room.mu.Unlock()
 	room.broadcastPads(msg(map[string]any{"t": "tv", "up": false}))
+}
+
+// claimRoom attaches TV conn c to a room (see HandleTV). Returns nil if the server is full.
+func (h *Hub) claimRoom(c *conn, want, tok string, now time.Time) *Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if old := h.rooms[want]; old != nil {
+		old.mu.Lock()
+		owner := tok != "" && old.token == tok
+		var stale *conn
+		if old.tv == nil && (old.token == "" || owner) {
+			old.tv = c
+		} else if old.tv != nil && owner { // same TV reconnecting before its old socket timed out
+			stale, old.tv = old.tv, c
+		}
+		got := old.tv == c
+		old.mu.Unlock()
+		if stale != nil {
+			stale.close(websocket.StatusNormalClosure, "replaced")
+		}
+		if got {
+			return old
+		}
+	}
+	if len(h.rooms) >= maxRooms {
+		return nil
+	}
+	code := ""
+	if res, ok := h.reserved[want]; ok && tok != "" && res.token == tok && now.Before(res.until) && h.rooms[want] == nil {
+		code = want
+	}
+	for code == "" {
+		if code = newCode(); h.rooms[code] != nil || h.isReserved(code, now) {
+			code = ""
+		}
+	}
+	delete(h.reserved, code)
+	room := &Room{Code: code, tv: c, pads: map[int]*conn{}, token: tok}
+	h.rooms[code] = room
+	return room
+}
+
+// isReserved (h.mu held): code is held for some TV's token.
+func (h *Hub) isReserved(code string, now time.Time) bool {
+	res, ok := h.reserved[code]
+	return ok && now.Before(res.until)
 }
 
 func (rm *Room) broadcastPads(b []byte) {
@@ -384,7 +432,15 @@ func (h *Hub) sweep(now time.Time) {
 				p.close(websocket.StatusNormalClosure, "room closed")
 			}
 			delete(h.rooms, code)
+			if rm.token != "" && len(h.reserved) < maxReserved {
+				h.reserved[code] = reservation{token: rm.token, until: rm.tvLeft.Add(reserveFor)}
+			}
 		}
 		rm.mu.Unlock()
+	}
+	for code, res := range h.reserved {
+		if !now.Before(res.until) {
+			delete(h.reserved, code)
+		}
 	}
 }
