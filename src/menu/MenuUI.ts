@@ -63,6 +63,7 @@ body.lr-menu-open #touch-ui,body.lr-menu-open #touch-opts{visibility:hidden!impo
 #lr-menu .side{display:none}
 @media (max-height:500px){#lr-menu .logo{margin:0 0 1vh}#lr-menu .it{min-height:36px;margin:3px 0;padding:3px 14px}}
 @media (max-height:420px) and (orientation:landscape){#lr-menu .logo .l1{font-size:26px}#lr-menu .logo .l2{font-size:18px}}
+@media (max-height:500px) and (orientation:landscape){#lr-menu{flex-direction:row!important;flex-wrap:wrap;align-content:center;align-items:center}#lr-menu .logo{width:36%;margin:0}#lr-menu .l1{font-size:clamp(26px,6.5vw,52px)}#lr-menu .main{width:62%;flex:none;height:92vh}#lr-menu .panel{width:min(58vw,460px)}#lr-menu .it{min-height:40px;margin:4px 0}#lr-menu .foot{display:none}}
 /* TV: overscan-safe 5%, 10-foot sizes, side panel */
 #lr-menu.tv{padding:5vh 5vw}
 #lr-menu.tv .l1{font-size:9vh}#lr-menu.tv .l2{font-size:6vh}

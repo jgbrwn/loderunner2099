@@ -6,16 +6,18 @@ import { getSoundManager } from '../audio/SoundManager';
 import { Settings } from '../systems/Settings';
 
 const CSS = `
-#lr-idle{position:fixed;inset:0;z-index:80;background:#05010f;color:#e8ffff;font-family:'Courier New',monospace;overflow:hidden;
+#lr-idle{position:fixed;inset:0;z-index:80;background:rgba(5,1,15,.45);-webkit-backdrop-filter:blur(12px) brightness(.6) saturate(1.3);backdrop-filter:blur(12px) brightness(.6) saturate(1.3);color:#e8ffff;font-family:'Courier New',monospace;overflow:hidden;
  opacity:0;transition:opacity 1.2s;cursor:none}
 #lr-idle.on{opacity:1}
-#lr-idle .sky{position:absolute;inset:0;background:linear-gradient(#05010f 0%,#1a0638 55%,#3a0a4a 62%,#05010f 62.2%)}
+#lr-idle .sky{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,transparent 40%,#05010fcc 100%)}
+body.lr-idle-on #game-container{animation:lriBg 300s ease-in-out infinite alternate}
+@keyframes lriBg{from{transform:translate(-1.5vw,-1.5vh) scale(1.06)}to{transform:translate(1.5vw,1.5vh) scale(1.1)}}
 #lr-idle .sun{position:absolute;left:50%;top:30%;width:34vh;height:34vh;margin-left:-17vh;border-radius:50%;
  background:linear-gradient(#ffe066,#ff2bd6 70%);box-shadow:0 0 80px #ff2bd688;opacity:.55;
  -webkit-mask:repeating-linear-gradient(#000 0 7%,transparent 7% 9%);mask:repeating-linear-gradient(#000 0 7%,transparent 7% 9%)}
 #lr-idle .grid{position:absolute;left:-50%;right:-50%;bottom:-8%;height:46%;transform:perspective(300px) rotateX(62deg);
  background:linear-gradient(#ff2bd6 2px,transparent 2px) 0 0/100% 46px,linear-gradient(90deg,#ff2bd655 2px,transparent 2px) 0 0/46px 100%;
- opacity:.3;animation:lriGrid 6s linear infinite}
+ opacity:.12;animation:lriGrid 6s linear infinite}
 @keyframes lriGrid{to{background-position:0 46px,0 0}}
 #lr-idle .drift{position:absolute;inset:7vh 7vw;animation:lriDrift 420s ease-in-out infinite alternate}
 @keyframes lriDrift{0%{transform:translate(-2.5vw,-2vh)}25%{transform:translate(2vw,1.5vh)}50%{transform:translate(-1vw,2.5vh)}
@@ -77,11 +79,12 @@ export function initIdle(game: Phaser.Game): { dismiss(): boolean; show(): void 
     }
     el = document.createElement('div');
     el.id = 'lr-idle';
-    el.innerHTML = `<div class="sky"></div><div class="sun"></div><div class="grid"></div><div class="drift"><div class="wrap">
+    el.innerHTML = `<div class="sky"></div><div class="grid"></div><div class="drift"><div class="wrap">
       <div><div class="clock"></div><div class="date"></div></div><div class="np"></div></div>
       <div class="hint">PRESS ANY BUTTON</div></div>`;
     document.body.appendChild(el);
     requestAnimationFrame(() => el?.classList.add('on'));
+    document.body.classList.add('lr-idle-on');
     const sm = getSoundManager();
     if (Settings.idleRadio && sm.getMusicMode() !== 'radio') { prevMode = sm.getMusicMode(); sm.setMusicMode('radio'); }
     game.loop.sleep();
@@ -95,6 +98,7 @@ export function initIdle(game: Phaser.Game): { dismiss(): boolean; show(): void 
     if (!el) return false;
     const e = el; el = null;
     e.classList.remove('on');
+    document.body.classList.remove('lr-idle-on');
     setTimeout(() => e.remove(), 400);
     clearInterval(relayT); clearInterval(npT);
     if (prevMode) { getSoundManager().setMusicMode(prevMode as any); prevMode = null; }
