@@ -3,159 +3,91 @@
 [![Play Now](https://img.shields.io/badge/Play%20Now-Live%20Demo-00ff88?style=for-the-badge)](https://loderunner2099.exe.xyz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
-A modern web-based reimagining of the classic Lode Runner game with procedural level generation, multiple themes, and shareable seeds.
+A neon reimagining of classic Lode Runner: endless procedurally generated (and provably solvable) levels, adaptive
+procedural chiptune music, 2-player co-op and split-screen versus, a TV mode with your phone as the controller, and an
+installable offline PWA.
 
-![Lode Runner 2099 Gameplay](docs/screenshots/gameplay-cyber-v2.png?v=2)
+![Gameplay](docs/screenshots/gameplay.png)
 
 ## ✨ Features
 
-- **Procedural Level Generation** - Infinite unique levels generated from shareable seed codes
-- **4 Difficulty Levels** - Easy, Normal, Hard, and Ninja with scaling complexity
-- **5 Visual Themes** - Cyber Blue, Matrix, Sunset Chrome, Neon Noir, and Classic C64
-- **Seed Sharing** - Share specific levels with friends via URL or seed code
-- **Adjustable Speed** - 6 speed settings from 0.5x to 2x
-- **CRT Filter** - Optional retro scanline effect
-- **Procedural Music** - Unique chiptune soundtrack generated for each level from the same seed
-- **Sound Effects** - Retro-style audio with separate mute options for SFX and music
-- **Responsive Controls** - Keyboard support with on-screen hints
+- **Procedural levels** – 5 seeded layout styles (classic, terraced, tower, islands, pyramid) built from classic
+  Lode Runner idioms. A move-graph solver (SCC round-trip proof incl. digging, trap bricks and death traps)
+  guarantees every level is completable.
+- **True to the original** – Doug Smith–style guard AI, guards always held in holes, holes refill and bury, false
+  (trap) bricks you fall through, classic scoring and lives, sub-tile movement with mid-tile reversal.
+- **Guard-assisted gold** – on Normal+ some gold sits on unreachable ledges; a guard reliably fetches it and drops it
+  where you can reach it.
+- **Shareable seeds** – every level comes from a seed; share a link (`?seed=ABC&diff=hard&g=2`) or play the **Daily Seed**.
+- **Adaptive procedural music** – seeded songs in 4 styles with song form, drums, echo and in-key stingers; intensity
+  follows the action and switches to an escape variation when the exit appears. Or listen to **Radio Paradise**.
+- **2 players** – co-op on one board, or split-screen versus (same level, first to clear wins).
+- **TV mode** (`/tv`) – 10-foot UI, QR pairing so phones become controllers (`/pad`), remembered pairing, idle screen
+  with clock, Radio Paradise now-playing card and burn-in protection. Android TV / Google TV app included (`android/`).
+- **Mobile & PWA** – installable, fully offline, touch controls in the side gutters (never over the board), haptics.
+- **Input everywhere** – keyboard, gamepads, TV remotes, touch, phones.
+- **5 themes**, CRT filter, speed control, reduced-motion option. Rendered at 1080p.
 
-## 🎮 How to Play
+| Menu | TV mode |
+|---|---|
+| ![Menu](docs/screenshots/menu.png) | ![TV](docs/screenshots/tv.png) |
 
-### Controls
+![Versus](docs/screenshots/versus.png)
 
-| Key | Action |
-|-----|--------|
-| Arrow Keys | Move |
-| Z | Dig Left |
-| X | Dig Right |
-| +/- | Adjust Speed |
-| P | Pause |
-| T | Change Theme |
-| C | Toggle CRT Effect |
-| M | Mute/Unmute All |
-| B | Toggle Music |
-| R | Restart Level |
-| ESC | Return to Menu (double-tap) |
+## 🎮 Controls
 
-### Objective
+| Action | Keyboard (1P) | Gamepad |
+|---|---|---|
+| Move | Arrows / WASD | D-pad / stick |
+| Dig left / right | Z / X (or Q / E) | X / B, LB / RB, LT / RT |
+| Pause menu | P / Esc | Start |
+| Theme / CRT / Speed | T / C / + − | — |
 
-Collect all the gold on each level, then climb to the top to escape. Avoid or trap enemies by digging holes in the brick floor. Enemies caught in holes will be stunned and drop any gold they're carrying.
+2-player on one keyboard: P1 = WASD + Q/E, P2 = arrows + `,`/`.` (or IJKL + U/O).
 
-## 🚀 Quick Start
+**Goal:** collect all gold, then climb the exit ladder that appears to the top. Dig holes to trap guards — but don't
+get caught when the hole refills.
 
-### Play Online
+## 📺 Playing on a TV
 
-Visit **[loderunner2099.exe.xyz](https://loderunner2099.exe.xyz/)** to play instantly!
+1. Open `https://<your-server>/tv` in the TV's browser, or install the Android TV app (`/app` serves the APK; see
+   [android/README.md](android/README.md)).
+2. Scan the QR code with your phone (or open `/pad` and enter the 4-letter code). Pick P1 or P2.
+3. The phone is now a controller; sound plays on the TV (enable "Sound on phone" on the pad if you want it there too).
 
-### Local Development
+## 🚀 Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/jgbrwn/loderunner2099.git
-cd loderunner2099
-
-# Install dependencies
 npm install
-
-# Start development server
-npm run dev
+npm run dev        # vite dev server on :8000
+npm test           # vitest (sim, level solver, audio, pairing)
+npm run build      # -> dist/
+go build -o server . && ./server   # production server (static + pairing + radio + QR)
 ```
 
-Then open http://localhost:5173 in your browser.
+Level stats: `npx esbuild tools/levelstats.ts --bundle --platform=node --outfile=/tmp/ls.cjs && node /tmp/ls.cjs 2000 3`
+· Guard-gold / trap audit: `npx esbuild tools/trapcheck.ts --bundle --platform=node --outfile=/tmp/tc.cjs && node /tmp/tc.cjs 200 60`
 
-### Production Build
+See [DEPLOYMENT.md](DEPLOYMENT.md) for systemd deployment and [docs/overhaul/PROTOCOL.md](docs/overhaul/PROTOCOL.md)
+for the pairing protocol.
 
-```bash
-npm run build
-```
+## 🛠️ Tech & layout
 
-The built files will be in the `dist/` directory.
-
-For production deployment with optimal caching, see [DEPLOYMENT.md](DEPLOYMENT.md).
-
-## 🛠️ Tech Stack
-
-- **Game Engine**: [Phaser 3](https://phaser.io/) - HTML5 game framework
-- **Language**: TypeScript
-- **Build Tool**: [Vite](https://vitejs.dev/) - Fast development and optimized builds
-- **Production Server**: Go with optimized caching headers
-- **Process Manager**: systemd (for Linux deployment)
-
-## 📁 Project Structure
+Phaser 4 · TypeScript · Vite · Web Audio · Go (coder/websocket, go-qrcode) · vitest
 
 ```
-loderunner2099/
-├── src/
-│   ├── main.ts              # Entry point
-│   ├── config.ts            # Game configuration
-│   ├── scenes/
-│   │   ├── MenuScene.ts     # Main menu
-│   │   └── GameScene.ts     # Core gameplay
-│   ├── entities/
-│   │   ├── Player.ts        # Player character
-│   │   └── Enemy.ts         # Enemy AI
-│   ├── level/
-│   │   ├── LevelGenerator.ts    # Procedural generation
-│   │   ├── TileMap.ts           # Level data structure
-│   │   └── SolvabilityChecker.ts # Level validation
-│   └── utils/
-│       ├── SeededRandom.ts  # Deterministic RNG
-│       └── SoundManager.ts  # Audio handling
-├── public/                  # Static assets
-├── dist/                    # Production build output
-├── server/                  # Go production server (after build)
-└── docs/screenshots/        # Documentation images
+src/sim/       deterministic 60 Hz simulation (players, guards, holes, scoring)
+src/level/     generator v2, solver, TileMap
+src/graphics/  code-generated pixel art, FieldView, HUD, backgrounds, CRT
+src/audio/     composer, lookahead music engine, SFX, radio
+src/input/     keyboard / gamepad / touch / remote-pad input
+src/scenes/    Boot, Menu, Game      src/menu/  menu UI + attract demo
+src/tv/        TV mode + idle screen src/pad/   phone controller   src/platform/  PWA, pairing, splash
+*.go           server: static, rooms, radio, QR, security headers
+android/       Gradle-less Android TV WebView wrapper
+tools/         level statistics, guard-gold/trap audit
 ```
-
-## 🎨 Themes
-
-| Theme | Description |
-|-------|-------------|
-| **Cyber Blue** | Default neon cyberpunk aesthetic |
-| **Matrix** | Green-on-black digital rain style |
-| **Sunset Chrome** | Warm orange and purple tones |
-| **Neon Noir** | High contrast black with neon accents |
-| **Classic C64** | Authentic Commodore 64 color palette |
-
-![Ninja Difficulty](docs/screenshots/gameplay-ninja-v2.png?v=2)
-*Ninja difficulty level with increased complexity and enemies*
-
-## 🎯 Difficulty Levels
-
-| Difficulty | Complexity | Ladders | Enemies | Gold | Speed | Music |
-|------------|------------|---------|---------|------|-------|-------|
-| Easy | Low | Many | 1-2 | 5-8 | 0.7x | 100-120 BPM, major/pentatonic |
-| Normal | Medium | Moderate | 2-3 | 8-12 | 1.0x | 120-140 BPM, minor/dorian |
-| Hard | High | Few | 3-4 | 12-16 | 1.2x | 140-160 BPM, dorian/phrygian |
-| Ninja | Maximum | Sparse | 4-5 | 16-20 | 1.4x | 160-180 BPM, phrygian/minor |
-
-## 🎵 Procedural Music
-
-Each level has a unique chiptune soundtrack generated procedurally from the same seed as the level itself. This means:
-
-- **Deterministic**: The same seed always produces the same music
-- **Unique per level**: Each level in a playthrough has different music
-- **Difficulty-scaled**: Harder difficulties have faster, more intense music
-- **Authentic retro sound**: Square wave melody, triangle wave bass
-
-Press **B** to toggle music on/off (separate from the **M** mute which silences everything).
-
-## 🔗 Sharing Levels
-
-Share a specific level by copying the URL with seed and difficulty parameters:
-
-```
-https://loderunner2099.exe.xyz/?seed=CYBER1&diff=normal
-```
-
-Or type a seed code directly in the menu and share it with friends!
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Original Lode Runner by Douglas E. Smith (1983)
-- Inspired by the C64 version and various ports
-- Built with [Phaser 3](https://phaser.io/)
+MIT – see [LICENSE](LICENSE). Inspired by Doug Smith's *Lode Runner* (1983).
