@@ -115,6 +115,7 @@ function onMsg(m: any): void {
     case 'rumble': vibrate(Math.min(1000, Number(m.ms) || 60)); break;
     case 'event':
       vibrate(m.e === 'death' ? [80, 40, 120] as any : m.e === 'clear' ? [40, 30, 40, 30, 120] as any : 30);
+      if (padSound) beep(String(m.e));
       document.body.classList.remove('flash'); void document.body.offsetWidth; document.body.classList.add('flash');
       break;
     case 'state': Object.assign(lastState, m); renderState(); break;
@@ -168,6 +169,38 @@ const actA = $('actA'), actB = $('actB');
 makeButton(actA, d => hold(inPlay ? 'digLeft' : 'back', d));
 makeButton(actB, d => hold(inPlay ? 'digRight' : 'confirm', d));
 renderState();
+
+// "Sound on phone" (opt-in; audio normally plays on the TV only): tiny WebAudio SFX for TV events.
+let padSound = ls('lr2099.padSound') === '1';
+let actx: AudioContext | null = null;
+const SFX: Record<string, [number, number, number][]> = {   // [freq, start s, dur s]
+  gold: [[988, 0, 0.06], [1319, 0.06, 0.1]], trap: [[330, 0, 0.08], [247, 0.08, 0.12]],
+  death: [[392, 0, 0.12], [294, 0.12, 0.12], [196, 0.24, 0.3]], clear: [[523, 0, 0.1], [659, 0.1, 0.1], [784, 0.2, 0.1], [1047, 0.3, 0.25]],
+};
+function beep(e: string): void {
+  const notes = SFX[e];
+  if (!notes) return;
+  try {
+    actx ??= new AudioContext();
+    if (actx.state === 'suspended') void actx.resume();
+    const t0 = actx.currentTime + 0.01;
+    for (const [f, st, d] of notes) {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.08, t0 + st); g.gain.exponentialRampToValueAtTime(0.001, t0 + st + d);
+      o.connect(g).connect(actx.destination); o.start(t0 + st); o.stop(t0 + st + d + 0.02);
+    }
+  } catch { /* no audio */ }
+}
+const sndBtn = document.createElement('button');
+sndBtn.className = 'leave';
+const sndLabel = () => { sndBtn.textContent = padSound ? '🔊 SOUND ON PHONE' : '🔇 SOUND ON TV'; };
+sndLabel();
+sndBtn.addEventListener('click', () => {
+  padSound = !padSound; ls('lr2099.padSound', padSound ? '1' : '0'); sndLabel();
+  if (padSound) beep('gold');   // also unlocks audio on iOS (user gesture)
+});
+$('leave').before(sndBtn);
 
 setInterval(() => send({ t: 'in', b: bits }), 1000); // keepalive / resync
 setInterval(() => { pingAt = performance.now(); send({ t: 'ping' }); }, 3000);

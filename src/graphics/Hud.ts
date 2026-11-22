@@ -11,6 +11,8 @@ export interface HudData {
   music: 'procedural' | 'radio' | 'off';
   label?: string;          // e.g. 'P1' in split-screen
   livesIcon?: 'life_p1' | 'life_p2';
+  score2?: number;         // co-op: second player's score (shown as P2)
+  status?: string;         // short right-side note (e.g. versus round wins), replaces difficulty
 }
 
 /** Slim HUD bar laid out at 960x28 design size, scaled into its rect. */
@@ -54,6 +56,7 @@ export class Hud {
     mk('livesX', 0, 0xffffff, 12);
     mk('levelL', 300, dim, 11); mk('level', 334, 0xffffff, 16);
     mk('goldL', 384, dim, 11); mk('gold', 0, theme.gold, 13);
+    mk('p2L', 610, dim, 11); mk('p2', 634, 0xffffff, 16);
     mk('diff', 790, theme.hudText, 12, 1); mk('seed', 905, dim, 12, 1);
   }
 
@@ -66,21 +69,23 @@ export class Hud {
     this.icons = [];
     const icon = (f: string, x: number, y: number) => { const im = this.scene.add.image(x, y, this.tex, f).setOrigin(0, 0.5); this.root.add(im); this.icons.push(im); return im; };
     const H = CONFIG.HUD_HEIGHT, cy = H / 2 - 1;
-    t.scoreL.setText(d.label ? d.label : 'SCORE');
+    t.scoreL.setText(d.label ? d.label : d.score2 !== undefined ? 'P1' : 'SCORE');
+    t.p2L.setText(d.score2 !== undefined ? 'P2' : '');
+    t.p2.setText(d.score2 !== undefined ? String(d.score2).padStart(7, '0') : '');
     t.score.setText(String(d.score).padStart(7, '0'));
     // lives
     let x = 150;
-    const shown = d.lives > 7 ? 1 : Math.max(0, d.lives);
+    const shown = d.lives < 0 ? 0 : d.lives > 7 ? 1 : Math.max(0, d.lives);
     for (let i = 0; i < shown; i++) icon(d.livesIcon ?? 'life_p1', x + i * 14, cy);
-    t.livesX.setPosition(x + shown * 14 + 2, cy).setText(d.lives > 7 ? 'x' + d.lives : d.lives <= 0 ? '--' : '');
+    t.livesX.setPosition(x + shown * 14 + 2, cy).setText(d.lives > 7 ? 'x' + d.lives : d.lives === 0 ? '--' : '');
     t.levelL.setText('LV'); t.level.setText(String(d.level).padStart(2, '0'));
     t.goldL.setText('GOLD');
     // gold pips (collected = lit)
     x = 422;
-    const total = Math.min(d.goldTotal, 24), got = d.goldTotal - d.goldLeft;
+    const total = Math.min(d.goldTotal, d.score2 !== undefined ? 14 : 24), got = d.goldTotal - d.goldLeft;
     for (let i = 0; i < total; i++) icon(i < got ? 'pip_on' : 'pip_off', x + i * 10, cy);
     t.gold.setPosition(x + total * 10 + 6, cy).setText(d.goldLeft > 0 ? String(d.goldLeft) : 'EXIT!');
-    t.diff.setText(d.difficulty);
+    t.diff.setText(d.status ?? d.difficulty);
     t.seed.setText('SEED ' + d.seed);
     icon(d.music === 'radio' ? 'icon_radio' : d.music === 'off' ? 'icon_off' : 'icon_note', 924, cy);
   }
