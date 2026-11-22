@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -13,50 +14,75 @@ func main() {
 	if p := os.Getenv("PORT"); p != "" {
 		port = p
 	}
-
 	distDir := "./dist"
-	
-	// Check if dist exists
 	if _, err := os.Stat(distDir); os.IsNotExist(err) {
 		log.Fatal("dist/ directory not found. Run 'npm run build' first.")
 	}
+	hub := NewHub(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","))
+	go hub.janitor(30 * time.Second)
+	radio := NewRadio(nil)
+	srv := &http.Server{Addr: ":" + port, Handler: newMux(distDir, hub, radio), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("🎮 Lode Runner 2099 server running on http://localhost:%s (serving %s)", port, distDir)
+	log.Fatal(srv.ListenAndServe())
+}
 
+func newMux(distDir string, hub *Hub, radio *Radio) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws/tv", hub.HandleTV)
+	mux.HandleFunc("/ws/pad", hub.HandlePad)
+	mux.HandleFunc("/api/radio/now", radio.Handle)
+	mux.HandleFunc("/api/qr", handleQR)
+	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) { serveAPK(w, r, distDir) })
+	mux.HandleFunc("/", staticHandler(distDir))
+	return mux
+}
+
+var pageRoutes = map[string]string{"/tv": "tv.html", "/tv/": "tv.html", "/pad": "pad.html", "/pad/": "pad.html"}
+
+func noCache(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+}
+
+func staticHandler(distDir string) http.HandlerFunc {
 	fs := http.FileServer(http.Dir(distDir))
-	
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		
-		// Determine caching based on file type
+		if page, ok := pageRoutes[path]; ok {
+			noCache(w)
+			http.ServeFile(w, r, filepath.Join(distDir, page))
+			return
+		}
 		ext := strings.ToLower(filepath.Ext(path))
-		
 		switch {
-		case path == "/" || path == "/index.html":
-			// HTML: no cache - always fetch latest
-			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			w.Header().Set("Pragma", "no-cache")
-			w.Header().Set("Expires", "0")
-			
+		case path == "/" || ext == ".html" || ext == ".webmanifest" || path == "/sw.js":
+			// HTML, manifest and service worker: always revalidate
+			noCache(w)
 		case ext == ".js" || ext == ".css":
-			// JS/CSS with hashes: cache for 1 year (immutable)
+			// hashed JS/CSS: immutable
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			
 		case ext == ".png" || ext == ".jpg" || ext == ".gif" || ext == ".webp" || ext == ".svg" || ext == ".ico":
-			// Images: cache for 1 week
 			w.Header().Set("Cache-Control", "public, max-age=604800")
-			
 		case ext == ".woff" || ext == ".woff2" || ext == ".ttf" || ext == ".eot":
-			// Fonts: cache for 1 year
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			
 		default:
-			// Other files: cache for 1 hour
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 		}
-		
 		fs.ServeHTTP(w, r)
-	})
+	}
+}
 
-	log.Printf("🎮 Lode Runner 2099 server running on http://localhost:%s", port)
-	log.Printf("📦 Serving from %s with optimized caching", distDir)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+// serveAPK serves the Android TV wrapper if it has been built.
+func serveAPK(w http.ResponseWriter, r *http.Request, distDir string) {
+	for _, p := range []string{filepath.Join(distDir, "loderunner2099.apk"), "android/out/loderunner2099.apk"} {
+		if _, err := os.Stat(p); err == nil {
+			noCache(w)
+			w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+			w.Header().Set("Content-Disposition", `attachment; filename="loderunner2099.apk"`)
+			http.ServeFile(w, r, p)
+			return
+		}
+	}
+	http.Error(w, "Android app not built yet", http.StatusNotFound)
 }

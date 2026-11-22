@@ -35,6 +35,16 @@ This creates optimized files in `dist/`:
 
 ### 2. Build the Server
 
+## Overhaul additions (Go server, `*.go` at repo root)
+- `/tv`, `/pad` → `dist/tv.html`, `dist/pad.html` (no-cache, like all HTML).
+- `/ws/tv`, `/ws/pad` — WebSocket pairing rooms, see `docs/overhaul/PROTOCOL.md`. Same-origin only;
+  extra origins via `ALLOWED_ORIGINS=host1,host2` env.
+- `/api/radio/now` (Radio Paradise now-playing, 15 s cache), `/api/qr?text=` (PNG).
+- `/app` → Android TV APK (`dist/loderunner2099.apk` or `android/out/loderunner2099.apk`).
+  Build: `android/build.sh` (needs JDK 17+, installs the Android SDK to ~/android-sdk; `PUBLIC_URL=` to change the
+  server it opens). Sideload on the TV box with e.g. Downloader → `https://HOST/app`.
+- Tests: `go test ./...`
+
 The Go server (`server.go`) provides:
 - Static file serving from `dist/`
 - Optimized caching headers
@@ -42,7 +52,7 @@ The Go server (`server.go`) provides:
 
 ```bash
 # Build the server binary
-go build -o server server.go
+go build -o server .
 ```
 
 ## Caching Strategy
@@ -136,7 +146,7 @@ echo "Building game assets..."
 npm run build
 
 echo "Building server..."
-go build -o server server.go
+go build -o server .
 
 echo "Restarting service..."
 sudo systemctl restart loderunner2099
