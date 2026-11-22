@@ -50,3 +50,15 @@ Old `playMusic(track)` may remain as a thin shim until scenes migrate.
 ### Input (src/input/) — owned by the Phase 1 worker
 `InputManager` producing per-player action state `{left,right,up,down,digLeft,digRight,pause,back,confirm}` from
 keyboard, Gamepad API, touch, TV remote and remote phone pads (`RemotePadSource` fed by WebSocket messages).
+
+## Later user decisions (TV/pad/fullscreen)
+- Audio in TV mode plays on the TV only. /pad is silent by default (haptics on); pad settings offer "Sound on phone" (SFX)
+  as an opt-in override.
+- Pairing persists: the TV keeps a stable room code across app restarts (TV stores a secret token in localStorage; server
+  re-issues the same code to that token; if the code is taken or the server restarted, it gets a new one and the
+  QR updates). Phones remember last TV code + their id and auto-rejoin when /pad opens. TV menu: "Pair a controller"
+  (shows QR/code), "Disconnect controllers" (kicks pads), "New pairing code" (rotates code). Phone: "Switch TV".
+- Fullscreen toggle (Fullscreen API) on desktop/mobile browsers when not already standalone; hide where unsupported
+  (iPhone Safari). /pad requests fullscreen + wake lock on first tap. /tv in a TV browser: prompt OK to go fullscreen;
+  in the Android app it is already fullscreen.
+- Final phases if credits allow: security pass, then update the public repo (README, docs, screenshots).
