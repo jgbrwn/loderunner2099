@@ -1,0 +1,32 @@
+// Persisted user options (localStorage). Menus write; GameScene/FieldView read at scene start.
+import { CONFIG, THEMES } from '../config';
+
+const P = 'lr2099.';
+const get = (k: string): string | null => { try { return localStorage.getItem(P + k); } catch { return null; } };
+const set = (k: string, v: string | null): void => {
+  try { if (v === null) localStorage.removeItem(P + k); else localStorage.setItem(P + k, v); } catch { /* private mode */ }
+};
+
+export const Settings = {
+  get theme(): string { const t = get('theme'); return t && THEMES[t] ? t : 'cyber'; },
+  set theme(v: string) { set('theme', v); },
+  get crt(): boolean { return get('crt') !== '0'; },
+  set crt(v: boolean) { set('crt', v ? '1' : '0'); },
+  /** index into CONFIG.SPEED_MULTIPLIERS (default 1.0x) */
+  get speedIndex(): number {
+    const i = Number(get('speed'));
+    return get('speed') !== null && i >= 0 && i < CONFIG.SPEED_MULTIPLIERS.length ? i : CONFIG.SPEED_MULTIPLIERS.indexOf(1);
+  },
+  set speedIndex(v: number) { set('speed', String(v)); },
+  /** 'auto' follows prefers-reduced-motion (read by graphics/Layout.reducedMotion()) */
+  get reducedMotion(): 'auto' | 'on' | 'off' { const v = get('reducedMotion'); return v === null ? 'auto' : v === '1' || v === 'true' ? 'on' : 'off'; },
+  set reducedMotion(v: 'auto' | 'on' | 'off') { set('reducedMotion', v === 'auto' ? null : v === 'on' ? '1' : '0'); },
+  /** TV idle screen after N minutes without input (0 = never) */
+  get idleMinutes(): number { const v = get('idleMin'); return v === null ? 5 : Math.max(0, Number(v) || 0); },
+  set idleMinutes(v: number) { set('idleMin', String(v)); },
+  /** switch music to Radio Paradise while the idle screen shows */
+  get idleRadio(): boolean { return get('idleRadio') === '1'; },
+  set idleRadio(v: boolean) { set('idleRadio', v ? '1' : '0'); },
+  get lastSeed(): string { return get('lastSeed') ?? ''; },
+  set lastSeed(v: string) { set('lastSeed', v); },
+};

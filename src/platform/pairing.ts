@@ -26,7 +26,12 @@ const MIN_HOLD_MS = 50;     // a tap shorter than this is stretched so a game fr
 const STALE_MS = 3500;      // phones send state every 1 s; release everything if silent this long
 const KEY = 'lr2099.tvcode';
 const TOKEN_KEY = 'lr2099.tvtoken';
-const newToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+const newToken = (): string => {
+  const b = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+};
 
 export class TVPairing {
   code = '';
