@@ -78,8 +78,7 @@ export class TileMap {
   isSolid(x: number, y: number): boolean {
     const tile = this.getTile(x, y);
     return tile === TileType.BRICK || 
-           tile === TileType.BRICK_HARD || 
-           tile === TileType.BRICK_TRAP;
+           tile === TileType.BRICK_HARD; // BRICK_TRAP is passable
   }
   
   // Check if position can be stood on
@@ -105,7 +104,7 @@ export class TileMap {
   // Check if can dig at position
   canDig(x: number, y: number): boolean {
     const tile = this.getTile(x, y);
-    if (tile !== TileType.BRICK && tile !== TileType.BRICK_TRAP) {
+    if (tile !== TileType.BRICK) {
       return false;
     }
     

@@ -123,7 +123,7 @@ Rough guesses: P1 $5–7 · P2 $5–7 · P3 $5–6 · P4 $3–4 · P5 $3 · P6 $
 
 ---
 
-## Follow-up: trap bricks true to the original (planned, not done)
+## Follow-up: trap bricks true to the original (done: steps 1, 2, 4; trap stays drawn as brick, no reveal)
 Original: a trap ("false") brick looks like brick but is **not solid at all** — runners and guards can walk into it
 from the side and fall through it from above; it can't be dug and isn't support. Ours currently blocks sideways
 movement (solver and sim agree on that rule). To switch:

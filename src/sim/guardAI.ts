@@ -11,7 +11,7 @@ const base = (w: World, x: number, y: number): TileType => {
   return t === T.HOLE ? T.BRICK : t;
 };
 const blockV = (t: TileType) => t === T.BRICK || t === T.BRICK_HARD;          // stops downward travel
-const blockH = (t: TileType) => t === T.BRICK || t === T.BRICK_HARD || t === T.BRICK_TRAP;
+const blockH = (t: TileType) => t === T.BRICK || t === T.BRICK_HARD;  // trap bricks are passable
 const floor = (t: TileType) => t === T.BRICK || t === T.BRICK_HARD || ladder(t);
 
 /** Classic bestMove: chase target along the row if possible, else scanFloor. */

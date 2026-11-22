@@ -11,7 +11,7 @@ import {
 import { classicGuardMove, bfsFirstDir, bfsDist, moveGraph } from './guardAI';
 
 const T = TileType;
-export const isSolid = (t: TileType) => t === T.BRICK || t === T.BRICK_HARD || t === T.BRICK_TRAP;
+export const isSolid = (t: TileType) => t === T.BRICK || t === T.BRICK_HARD;  // BRICK_TRAP is not solid (original "false brick")
 export const isLadder = (t: TileType) => t === T.LADDER || t === T.LADDER_EXIT;
 const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0);
 

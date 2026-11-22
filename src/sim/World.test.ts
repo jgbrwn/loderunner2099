@@ -43,6 +43,20 @@ describe('sim', () => {
     expect(w.players[0].score).toBeGreaterThanOrEqual(75);
   });
 
+  it('trap brick can be entered from the side and fallen through', () => {
+    const w = new World(mapFrom([
+      'PX.....$',
+      '#X######',
+      '=.=.....',
+      '========',
+    ]), { seed: 1 });
+    run(w, 40, inp({ right: true }));
+    run(w, 40);
+    expect(w.players[0].cx).toBe(1);
+    expect(w.players[0].cy).toBe(2);
+    expect(w.tile(1, 0)).toBe(TileType.BRICK_TRAP);
+  });
+
   it('player falls through his own hole when nothing is below', () => {
     const w = new World(mapFrom([
       '.P.......$',

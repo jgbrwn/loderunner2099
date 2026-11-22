@@ -84,7 +84,7 @@ export class MoveGraph {
   /** blocks horizontal entry / climbing into */
   solid(x: number, y: number): boolean {
     const v = this.tile(x, y);
-    return v === TileType.BRICK || v === TileType.BRICK_HARD || v === TileType.BRICK_TRAP;
+    return v === TileType.BRICK || v === TileType.BRICK_HARD;  // trap bricks are passable
   }
   ladder(x: number, y: number): boolean {
     const v = this.tile(x, y);
