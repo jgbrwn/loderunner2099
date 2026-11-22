@@ -4,17 +4,18 @@ export const CONFIG = {
   GRID_WIDTH: 28,
   GRID_HEIGHT: 16,
   
-  // Tile size in pixels
-  TILE_SIZE: 24,
-  
-  // Calculated game dimensions
-  get GAME_WIDTH() { return this.GRID_WIDTH * this.TILE_SIZE; }, // 672
-  get GAME_HEIGHT() { return (this.GRID_HEIGHT + 3) * this.TILE_SIZE; }, // 456 (extra rows for HUD with controls)
-  
+  // Tile size in pixels (logical). Field 28x16 @32 = 896x512.
+  TILE_SIZE: 32,
+
+  // Base render resolution: 960x540 (16:9) -> exact 2x for 1080p, 4x for 4K.
+  GAME_WIDTH: 960,
+  GAME_HEIGHT: 540,
+  HUD_HEIGHT: 28,
+
   // Viewport (16:9 with letterboxing)
-  VIEWPORT_WIDTH: 896,
-  VIEWPORT_HEIGHT: 504,
-  
+  VIEWPORT_WIDTH: 960,
+  VIEWPORT_HEIGHT: 540,
+
   // Speed settings
   BASE_SPEED: 100, // pixels per second (reduced for better gameplay)
   FALL_SPEED: 140,
