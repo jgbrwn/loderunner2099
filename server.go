@@ -26,15 +26,15 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-func newMux(distDir string, hub *Hub, radio *Radio) *http.ServeMux {
+func newMux(distDir string, hub *Hub, radio *Radio) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/tv", hub.HandleTV)
-	mux.HandleFunc("/ws/pad", hub.HandlePad)
-	mux.HandleFunc("/api/radio/now", radio.Handle)
-	mux.HandleFunc("/api/qr", handleQR)
+	mux.HandleFunc("/ws/tv", limitWS(hub.HandleTV))
+	mux.HandleFunc("/ws/pad", limitWS(hub.HandlePad))
+	mux.HandleFunc("/api/radio/now", limitAPI(radio.Handle))
+	mux.HandleFunc("/api/qr", limitAPI(handleQR))
 	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) { serveAPK(w, r, distDir) })
 	mux.HandleFunc("/", staticHandler(distDir))
-	return mux
+	return securityHeaders(mux)
 }
 
 var pageRoutes = map[string]string{"/tv": "tv.html", "/tv/": "tv.html", "/pad": "pad.html", "/pad/": "pad.html"}

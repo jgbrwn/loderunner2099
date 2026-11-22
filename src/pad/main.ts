@@ -96,7 +96,7 @@ function connect(): void {
 const send = (m: object) => { if (ws?.readyState === 1) ws.send(JSON.stringify(m)); };
 
 const ERRORS: Record<string, string> = {
-  no_room: 'No TV found with that code', slot_taken: 'That player is already taken', full: 'This TV has too many phones',
+  no_room: 'No TV found with that code', slot_taken: 'That player is already taken', full: 'This TV has too many phones', rate_limited: 'Too many tries — wait a minute',
 };
 function onMsg(m: any): void {
   switch (m.t) {

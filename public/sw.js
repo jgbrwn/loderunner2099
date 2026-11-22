@@ -51,7 +51,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method !== 'GET' || url.origin !== scope.origin || /^\/(api|ws)\//.test(url.pathname)) return;
+  if (req.method !== 'GET' || url.origin !== scope.origin || /^\/(api|ws|app)(\/|$)/.test(url.pathname)) return;
   if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
     const key = url.origin + url.pathname; // ignore ?seed=… etc. for the cache key
     e.respondWith((async () => {

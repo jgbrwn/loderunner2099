@@ -21,11 +21,11 @@ TV → server:
 
 ## Phone: `wss://HOST/ws/pad?code=ABCD[&slot=1|2|spec][&id=CLIENTID][&name=NAME]`
 No `slot` → first free of 1, 2, else spectator (slots 3+; max 8 phones). `id` = random id kept in localStorage;
-reconnecting with the same id reclaims the same slot. `name` ≤ 24 chars.
+reconnecting with the same id reclaims the same slot. `name` ≤ 16 chars (markup chars stripped). Unknown codes are rate-limited per IP (`error":"rate_limited"`).
 
 Server → phone:
 - `{"t":"joined","code":"ABCD","slot":1,"tv":true}`
-- `{"t":"error","error":"no_room"|"slot_taken"|"full"}` then close.
+- `{"t":"error","error":"no_room"|"slot_taken"|"full"|"rate_limited"}` then close.
 - `{"t":"tv","up":false|true}` — TV dropped / came back.
 - anything the TV relays (`m` objects, see below).
 

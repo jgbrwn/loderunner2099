@@ -24,7 +24,7 @@ import android.widget.Toast;
  * Lode Runner 2099 for Android TV: a fullscreen WebView on PUBLIC_URL/tv?app=1.
  * D-pad / OK / media keys go to the page as normal key events. BACK calls window.lr2099OnBack() if the page
  * defines it (return true = handled); otherwise press BACK twice to exit. MENU = change server URL.
- * The page sees window.LR2099TV {version(), serverUrl(), exit()}.
+ * The page sees window.LR2099TV {version(), serverUrl(), exit()} — only pages on the configured server host load.
  */
 public class MainActivity extends Activity {
     static final String DEFAULT_URL = "https://loderunner2099.exe.xyz/tv?app=1";
@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_FULLSCREEN
                 | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
         homeUrl = prefs().getString(PREF_URL, DEFAULT_URL);
+        if (!allowedUrl(homeUrl)) homeUrl = DEFAULT_URL;
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(5, 1, 15));
         setContentView(web);
@@ -56,6 +57,10 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
         s.setSupportZoom(false);
+        s.setAllowFileAccess(false);           // no file:// or content:// access from the page
+        s.setAllowContentAccess(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setGeolocationEnabled(false);
         s.setUserAgentString(s.getUserAgentString() + " LR2099TV/" + version());
         web.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         web.setFocusable(true);
@@ -64,6 +69,9 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Bridge(), "LR2099TV");
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
+            // stay on the configured server: other links open nowhere (TV has no browser UI)
+            @Override @SuppressWarnings("deprecation")
+            public boolean shouldOverrideUrlLoading(WebView v, String url) { return !sameHost(url); }
             @Override public void onPageFinished(WebView v, String url) { if (!failed) v.requestFocus(); }
             @Override @SuppressWarnings("deprecation")
             public void onReceivedError(WebView v, int code, String desc, String url) {
@@ -78,6 +86,23 @@ public class MainActivity extends Activity {
         immersive();
         if (saved == null || web.restoreState(saved) == null) web.loadUrl(homeUrl);
         web.requestFocus();
+    }
+
+    /** https anywhere; plain http only for LAN / localhost dev servers. */
+    static boolean allowedUrl(String u) {
+        try {
+            android.net.Uri p = android.net.Uri.parse(u);
+            String h = p.getHost();
+            if (h == null || h.isEmpty()) return false;
+            if ("https".equals(p.getScheme())) return true;
+            return "http".equals(p.getScheme()) && (h.equals("localhost") || h.endsWith(".local") || h.startsWith("10.")
+                    || h.startsWith("192.168.") || h.matches("172\\.(1[6-9]|2\\d|3[01])\\..*") || h.startsWith("127."));
+        } catch (Exception e) { return false; }
+    }
+
+    private boolean sameHost(String url) {
+        String a = android.net.Uri.parse(url).getHost(), b = android.net.Uri.parse(homeUrl).getHost();
+        return a != null && a.equalsIgnoreCase(b);
     }
 
     private SharedPreferences prefs() { return getSharedPreferences(PREFS, MODE_PRIVATE); }
@@ -129,7 +154,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Server URL").setView(in)
                 .setPositiveButton("Load", (d, w) -> {
                     String u = in.getText().toString().trim();
-                    if (u.startsWith("http://") || u.startsWith("https://")) {
+                    if (allowedUrl(u)) {
                         homeUrl = u;
                         prefs().edit().putString(PREF_URL, u).apply();
                     }

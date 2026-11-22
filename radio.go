@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,7 +51,10 @@ func parseRP(body []byte) (NowPlaying, error) {
 	if cover == "" {
 		cover = raw.Cover
 	}
-	return NowPlaying{Title: raw.Title, Artist: raw.Artist, CoverURL: cover, StreamURL: rpStreamURL}, nil
+	if !strings.HasPrefix(cover, "https://") || !strings.HasSuffix(strings.SplitN(strings.TrimPrefix(cover, "https://"), "/", 2)[0], ".radioparadise.com") {
+		cover = "" // only RP's own image host (CSP img-src allows *.radioparadise.com)
+	}
+	return NowPlaying{Title: clip(raw.Title, 200), Artist: clip(raw.Artist, 200), CoverURL: cover, StreamURL: rpStreamURL}, nil
 }
 
 func (r *Radio) Now(ctx context.Context) NowPlaying {
@@ -96,4 +100,11 @@ func (r *Radio) Handle(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=10")
 	json.NewEncoder(w).Encode(r.Now(req.Context()))
+}
+
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }

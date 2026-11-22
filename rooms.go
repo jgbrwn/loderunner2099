@@ -32,6 +32,8 @@ const (
 	maxReserved    = 20000
 )
 
+var codeMiss = newLimiter(10, 30*time.Second)
+
 // reservation: a closed room's code, kept for the TV that owned it (identified by a secret token).
 type reservation struct {
 	token string // sha256 hex of the TV token
@@ -300,6 +302,10 @@ func (h *Hub) HandlePad(w http.ResponseWriter, r *http.Request) {
 	room := h.rooms[strings.ToUpper(strings.TrimSpace(q.Get("code")))]
 	h.mu.Unlock()
 	if room == nil {
+		if !codeMiss.allow(clientIP(r)) {
+			fail("rate_limited") // slows code guessing: ~10 misses, then 1 per 30 s
+			return
+		}
 		fail("no_room")
 		return
 	}
@@ -308,10 +314,7 @@ func (h *Hub) HandlePad(w http.ResponseWriter, r *http.Request) {
 	if len(c.id) > 64 {
 		c.id = c.id[:64]
 	}
-	c.name = q.Get("name")
-	if len(c.name) > 24 {
-		c.name = c.name[:24]
-	}
+	c.name = cleanName(q.Get("name"))
 	want := q.Get("slot")
 
 	room.mu.Lock()

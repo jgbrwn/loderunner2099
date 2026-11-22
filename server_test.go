@@ -183,13 +183,13 @@ func TestRadioParseAndCache(t *testing.T) {
 	var hits int32
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
-		w.Write([]byte(`{"time":123,"artist":"Temples","title":"Fantasy Realm","cover":"https://x/l.jpg","cover_med":"https://x/m.jpg"}`))
+		w.Write([]byte(`{"time":123,"artist":"Temples","title":"Fantasy Realm","cover":"https://img.radioparadise.com/l.jpg","cover_med":"https://img.radioparadise.com/m.jpg"}`))
 	}))
 	defer up.Close()
 	r := NewRadio(nil)
 	r.URL = up.URL
 	np := r.Now(context.Background())
-	if np.Title != "Fantasy Realm" || np.Artist != "Temples" || np.CoverURL != "https://x/m.jpg" || np.StreamURL != rpStreamURL {
+	if np.Title != "Fantasy Realm" || np.Artist != "Temples" || np.CoverURL != "https://img.radioparadise.com/m.jpg" || np.StreamURL != rpStreamURL {
 		t.Fatalf("%+v", np)
 	}
 	r.Now(context.Background())
@@ -201,5 +201,26 @@ func TestRadioParseAndCache(t *testing.T) {
 	r2.URL = "http://127.0.0.1:1/"
 	if np := r2.Now(context.Background()); np.StreamURL == "" {
 		t.Fatal("no fallback stream")
+	}
+}
+
+func TestSecurityBits(t *testing.T) {
+	if np, _ := parseRP([]byte(`{"title":"x","cover":"https://evil.com/a.jpg"}`)); np.CoverURL != "" {
+		t.Fatal("foreign cover allowed")
+	}
+	if np, _ := parseRP([]byte(`{"title":"x","cover":"https://img.radioparadise.com.evil.com/a.jpg"}`)); np.CoverURL != "" {
+		t.Fatal("suffix trick allowed")
+	}
+	if n := cleanName("<b>Ann\x00\"'&</b> the very long name indeed"); n != "bAnn/b the very " {
+		t.Fatalf("cleanName %q", n)
+	}
+	l := newLimiter(2, time.Hour)
+	if !l.allow("a") || !l.allow("a") || l.allow("a") || !l.allow("b") {
+		t.Fatal("limiter")
+	}
+	srv, _ := testServer(t)
+	resp, _ := http.Get(srv.URL + "/")
+	if !strings.Contains(resp.Header.Get("Content-Security-Policy"), "frame-ancestors 'self'") || resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("headers %v", resp.Header)
 	}
 }

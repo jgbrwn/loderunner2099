@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { THEMES } from '../config';
+import { THEMES, DIFFICULTIES } from '../config';
 import { TileGraphics } from '../graphics/TileGraphics';
 
 export class BootScene extends Phaser.Scene {
@@ -30,14 +30,16 @@ export class BootScene extends Phaser.Scene {
     new TileGraphics(this).generateTextures(THEMES.cyber);
     // Check for URL parameters
     const params = new URLSearchParams(window.location.hash.slice(1));
-    const seed = params.get('seed');
-    const diff = params.get('diff');
+    const seed = (params.get('seed') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const rawDiff = params.get('diff') || '';
+    const diff = DIFFICULTIES[rawDiff] ? rawDiff : 'normal';
+    const rawMode = params.get('mode');
     
     if (seed) {
       // Direct to game with seed
       this.scene.start('GameScene', {
         seed: seed,
-        difficulty: diff || 'normal', mode: params.get('mode') || undefined
+        difficulty: diff, mode: rawMode === 'coop' || rawMode === 'versus' ? rawMode : undefined
       });
     } else {
       // Go to menu
