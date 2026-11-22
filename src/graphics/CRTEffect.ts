@@ -38,7 +38,7 @@ export class CRTEffect {
     const cam = scene.cameras.main;
     try {
       this.vignette = cam.filters.external.addVignette(0.5, 0.5, 0.9, 0.3);
-      this.barrel = cam.filters.external.addBarrel(1.025);
+      // No barrel: curvature resampling made straight pixel columns (ladder rails) zig-zag.
     } catch {
       // Canvas renderer: no filters, overlay only.
     }

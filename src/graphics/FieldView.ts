@@ -355,7 +355,7 @@ export class FieldView {
         if (k < 6) this.actors.get(prefix + 'death' + k, x, y).setFlipX(p.facing < 0);
         return;
       }
-      if (th.glow) this.actors.get('glow', x, y).setTint(i === 1 ? TileGraphics.P2_COLOR : th.player).setBlendMode(ADD).setAlpha(0.18 * actorAlpha).setScale(1.4);
+      if (th.glow) this.actors.get('glow', x, y).setTint(i === 1 ? TileGraphics.P2_COLOR : th.player).setBlendMode(ADD).setAlpha(0.32 * actorAlpha).setScale(1.6);
       this.actors.get(this.actorFrame(p, 'p' + i, prefix, time, 7 + i), x, y).setAlpha(actorAlpha).setFlipX(p.facing < 0);
     });
     this.under.end(); this.over.end(); this.gold.end(); this.actors.end();

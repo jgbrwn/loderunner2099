@@ -164,8 +164,8 @@ function drawPole(ctx: Ctx, theme: Theme): void {
   const c = mix(mix(theme.pole, theme.ladder, 0.25), 0xffffff, 0.3);
   px(ctx, 0, 2, 32, 6, theme.ladder, 0.12);
   px(ctx, 0, 3, 32, 4, theme.ladder, 0.16);
-  px(ctx, 0, 4, 32, 2, c);
-  px(ctx, 0, 4, 32, 1, tint(c, 1.7));
+  px(ctx, 0, 3, 32, 3, c);
+  px(ctx, 0, 3, 32, 1, tint(c, 1.7));
   px(ctx, 0, 6, 32, 1, shade(c, 0.45));
   for (const x of [7, 23]) { px(ctx, x, 3, 2, 4, shade(c, 0.6)); px(ctx, x, 3, 1, 1, tint(c, 1.6)); }
 }

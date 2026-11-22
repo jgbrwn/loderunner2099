@@ -86,7 +86,7 @@ function newCanvas(): HTMLCanvasElement { const c = document.createElement('canv
 function renderPose(p: Pose, color: number, guard: boolean): HTMLCanvasElement {
   const cv = newCanvas();
   const ctx = cv.getContext('2d')!;
-  const body = color, dark = shade(color, 0.6), light = mix(color, 0xffffff, 0.45);
+  const body = guard ? color : mix(color, 0xffffff, 0.12), dark = shade(color, 0.6), light = mix(color, 0xffffff, 0.5);
   const lean = p.lean ?? 0;
   // skeleton
   let hip = [16 + (p.dx ?? 0), 21];

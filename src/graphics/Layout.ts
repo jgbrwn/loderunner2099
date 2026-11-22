@@ -21,7 +21,8 @@ export function computeLayout(fields: 1 | 2, w = CONFIG.GAME_WIDTH, h = CONFIG.G
     return [{ x, y, scale, hud: { x: 0, y: 0, w, h: hudH } }];
   }
   const gap = 16;
-  const scale = Math.min((w - gap * 3) / 2 / FIELD_W, (h - hudH * 2) / FIELD_H);
+  // snap so a tile is a whole number of pixels (keeps rails/columns aligned)
+  const scale = Math.floor(Math.min((w - gap * 3) / 2 / FIELD_W, (h - hudH * 2) / FIELD_H) * CONFIG.TILE_SIZE) / CONFIG.TILE_SIZE;
   const fw = FIELD_W * scale, fh = FIELD_H * scale;
   const y = Math.round((h - fh - hudH) / 2 + hudH);
   const out: FieldLayout[] = [];
