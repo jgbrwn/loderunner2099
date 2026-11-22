@@ -4,287 +4,252 @@ import { generateSeedCode } from '../utils/SeededRandom';
 import { getSoundManager } from '../audio/SoundManager';
 import { getInput } from '../input/InputManager';
 import { getHighScores } from '../systems/HighScores';
+import { Settings } from '../systems/Settings';
+import { AttractDemo } from '../menu/AttractDemo';
+import { MenuUI, textInput, type Page, type Item } from '../menu/MenuUI';
+import { canInstall, iosInstallHint, onInstallAvailable, promptInstall } from '../platform/pwa';
+import { fullscreenSupported, isFullscreen, toggleFullscreen, onFullscreenChange } from '../platform/fullscreen';
+import type { TVPairing } from '../platform/pairing';
 
-// Global state for seed reset
-(window as any).__RESET_SEED_ON_MENU__ = false;
+type Mode = 'single' | 'coop' | 'versus';
+const DIFFS = ['easy', 'normal', 'hard', 'ninja'];
+const SEED_RE = /[^A-Z0-9]/g;
+let deepLinkDone = false;
+
+export const isTV = (): boolean => !!(window as any).__LR_TV__;
+export const dailySeed = (d = new Date()): string =>
+  'D' + String(d.getUTCFullYear() % 100).padStart(2, '0') + String(d.getUTCMonth() + 1).padStart(2, '0') + String(d.getUTCDate()).padStart(2, '0');
+export const shareUrl = (seed: string, diff: string): string =>
+  `${location.origin}/?seed=${encodeURIComponent(seed)}&diff=${diff}&g=2`;
 
 export class MenuScene extends Phaser.Scene {
-  private selectedDifficulty: number = 1; // 0=easy, 1=normal, 2=hard, 3=ninja
-  private difficultyKeys = ['easy', 'normal', 'hard', 'ninja'];
+  private ui: MenuUI | null = null;
+  private demo: AttractDemo | null = null;
   private starting = false;
-  private players = 1;
-  private difficultyTexts: Phaser.GameObjects.Text[] = [];
-  private seedInput: string = '';
-  private seedText!: Phaser.GameObjects.Text;
-  private highScoreText!: Phaser.GameObjects.Text;
-  private shareNotice: Phaser.GameObjects.Text | null = null;
-  
-  constructor() {
-    super({ key: 'MenuScene' });
-  }
-  
+  private seed = '';
+  private diff = 'normal';
+
+  constructor() { super({ key: 'MenuScene' }); }
+
+  /** TV back key (window.lr2099OnBack): false at the root menu. */
+  back(): boolean { return this.ui ? this.ui.back() : false; }
+
   create(): void {
-    // Scene instances are reused: reset per-run state (stale destroyed Texts here froze the old game loop).
     this.starting = false;
-    this.difficultyTexts = [];
-    this.shareNotice = null;
-    const theme = THEMES.cyber;
-    this.cameras.main.setBackgroundColor(theme.background);
-    
-    // Check if we should reset seed (returning from game)
-    if ((window as any).__RESET_SEED_ON_MENU__) {
-      this.seedInput = '';
-      (window as any).__RESET_SEED_ON_MENU__ = false;
-    }
-    
-    // Reset keyboard state to prevent stuck keys
-    if (this.input.keyboard) {
-      this.input.keyboard.resetKeys();
-    }
-    
-    // Initialize sound system on first interaction
-    this.input.once('pointerdown', () => getSoundManager().resume());
-    
-    // Title
-    const title = this.add.text(CONFIG.GAME_WIDTH / 2, 50, 'LODE RUNNER', {
-      fontFamily: 'monospace',
-      fontSize: '42px',
-      color: '#00ffff',
-      fontStyle: 'bold'
-    });
-    title.setOrigin(0.5);
-    
-    const subtitle = this.add.text(CONFIG.GAME_WIDTH / 2, 95, '2 0 9 9', {
-      fontFamily: 'monospace',
-      fontSize: '32px',
-      color: '#ff00ff',
-      fontStyle: 'bold'
-    });
-    subtitle.setOrigin(0.5);
-    
-    // Glowing effect on title
-    this.tweens.add({
-      targets: [title, subtitle],
-      alpha: { from: 0.7, to: 1 },
-      duration: 1000,
-      yoyo: true,
-      repeat: -1
-    });
-    
-    // High score display - at bottom of menu, above instructions
-    const topScore = getHighScores().getTopScore();
-    this.highScoreText = this.add.text(CONFIG.GAME_WIDTH / 2, 355, '', {
-      fontFamily: 'monospace',
-      fontSize: '11px',
-      color: '#ffff00'
-    });
-    this.highScoreText.setOrigin(0.5);
-    if (topScore) {
-      this.highScoreText.setText(`HIGH SCORE: ${topScore.score} by ${topScore.name}`);
-    }
-    
-    // Difficulty selection
-    const diffLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 150, 'SELECT DIFFICULTY', {
-      fontFamily: 'monospace',
-      fontSize: '16px',
-      color: '#ffffff'
-    });
-    diffLabel.setOrigin(0.5);
-    
-    const difficulties = ['EASY', 'NORMAL', 'HARD', 'NINJA'];
-    const colors = ['#00ff00', '#00ffff', '#ffaa00', '#ff0044'];
-    
-    difficulties.forEach((diff, i) => {
-      const y = 180 + i * 30;
-      const text = this.add.text(CONFIG.GAME_WIDTH / 2, y, diff, {
-        fontFamily: 'monospace',
-        fontSize: '22px',
-        color: colors[i]
-      });
-      text.setOrigin(0.5);
-      text.setInteractive({ useHandCursor: true });
-      text.on('pointerdown', () => {
-        this.selectDifficulty(i);
-        this.startGame();
-      });
-      text.on('pointerover', () => {
-        this.selectDifficulty(i);
-      });
-      this.difficultyTexts.push(text);
-    });
-    
-    // Seed input
-    const seedLabel = this.add.text(CONFIG.GAME_WIDTH / 2, 310, 'SEED (ESC to clear):', {
-      fontFamily: 'monospace',
-      fontSize: '12px',
-      color: '#888888'
-    });
-    seedLabel.setOrigin(0.5);
-    
-    this.seedText = this.add.text(CONFIG.GAME_WIDTH / 2, 330, '[ RANDOM ]', {
-      fontFamily: 'monospace',
-      fontSize: '16px',
-      color: '#ffff00'
-    });
-    this.seedText.setOrigin(0.5);
-    
-    // Reset seed button (X icon)
-    const resetSeedBtn = this.add.text(CONFIG.GAME_WIDTH / 2 + 85, 330, '[✕]', {
-      fontFamily: 'monospace',
-      fontSize: '14px',
-      color: '#ff4444'
-    });
-    resetSeedBtn.setOrigin(0.5);
-    resetSeedBtn.setInteractive({ useHandCursor: true });
-    resetSeedBtn.on('pointerdown', () => {
-      this.clearSeedAndNotice();
-    });
-    resetSeedBtn.on('pointerover', () => resetSeedBtn.setColor('#ff8888'));
-    resetSeedBtn.on('pointerout', () => resetSeedBtn.setColor('#ff4444'));
-    
-    // Instructions
-    const instructions = this.add.text(CONFIG.GAME_WIDTH / 2, 390, 
-      'Arrow Keys: Move | Z/X: Dig | +/-: Speed\n' +
-      'P: Pause | T: Theme | C: CRT | M: Mute\n\n' +
-      'Press ENTER or tap to start', {
-      fontFamily: 'monospace',
-      fontSize: '11px',
-      color: '#666688',
-      align: 'center'
-    });
-    instructions.setOrigin(0.5);
-    
-    // Input: keyboard arrows/Enter/Space, gamepads, TV remotes and phone pads via InputManager.
-    // Letter keys are reserved for typing the seed here.
+    this.events.once('shutdown', this.cleanup, this);
+    this.cameras.main.setBackgroundColor(THEMES.cyber.background);
+    this.input.keyboard?.resetKeys();
     const im = getInput();
     if (im.keyboard) im.keyboard.letters = false;
-    this.events.once('shutdown', () => { if (im.keyboard) im.keyboard.letters = true; });
-    getSoundManager().playMenuMusic?.();
-    
-    // Keyboard input for seed
-    this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
-      if (event.key.length === 1 && /[A-Za-z0-9]/.test(event.key)) {
-        if (this.seedInput.length < 8) {
-          this.seedInput += event.key.toUpperCase();
-          this.updateSeedDisplay();
-        }
-      } else if (event.key === 'Backspace') {
-        this.seedInput = this.seedInput.slice(0, -1);
-        this.updateSeedDisplay();
-      } else if (event.key === 'Escape') {
-        // Clear seed and shared notice with ESC
-        this.clearSeedAndNotice();
-      }
-    });
-    
-    
-    this.updateDifficultyDisplay();
-    
-    // Parse URL parameters for shared games (after UI is created)
-    this.parseURLParams();
+    im.swallow();
+    this.input.once('pointerdown', () => getSoundManager().resume());
+    getSoundManager().playMenuMusic();
+
+    this.demo = new AttractDemo(this);
+    const ui = this.ui = new MenuUI(isTV());
+    this.seed = Settings.lastSeed;
+    this.diff = DIFFS.includes(localStorage.getItem('lr2099.diff') ?? '') ? localStorage.getItem('lr2099.diff')! : 'normal';
+
+    const tv = this.registry.get('tvPairing') as TVPairing | undefined;
+    if (tv) {
+      tv.sendState({ screen: 'menu' });
+      ui.sideRender = (el, big) => this.renderPairing(el, tv, big);
+      const upd = () => ui.renderSide();
+      this.game.events.on('tvpairing', upd);
+      ui.onDestroy(() => this.game.events.off('tvpairing', upd));
+    }
+    ui.onDestroy(onInstallAvailable(() => ui.render()));
+    ui.onDestroy(onFullscreenChange(() => ui.render()));
+    ui.push(this.mainPage(tv));
+    if (!this.deepLink()) this.cameras.main.fadeIn(300);
   }
-  
-  update(): void {
+
+  private cleanup(): void {
+    this.ui?.destroy(); this.ui = null;
+    this.demo?.destroy(); this.demo = null;
+    const im = getInput();
+    if (im.keyboard) im.keyboard.letters = true;
+  }
+
+  update(time: number, delta: number): void {
     const im = getInput();
     im.update();
-    if (this.starting) return;
-    if (im.anyJustPressed('up')) this.selectDifficulty(Math.max(0, this.selectedDifficulty - 1));
-    if (im.anyJustPressed('down')) this.selectDifficulty(Math.min(3, this.selectedDifficulty + 1));
-    if (im.anyJustPressed('confirm') || im.anyJustPressed('digLeft') || im.anyJustPressed('pause')) this.startGame();
+    this.demo?.update(time, delta);
+    if (!this.starting) this.ui?.poll();
   }
-  
-  private selectDifficulty(index: number): void {
-    if (index !== this.selectedDifficulty) {
-      getSoundManager().playMenuSelect();
-    }
-    this.selectedDifficulty = index;
-    this.updateDifficultyDisplay();
+
+  // ---------------- pages ----------------
+  private mainPage(tv?: TVPairing): Page {
+    const items: Item[] = [
+      { label: 'PLAY', act: () => this.ui!.push(this.diffPage('single')), cls: 'accent' },
+      { label: tv ? 'CO-OP' : '2 PLAYERS', act: () => this.ui!.push(tv ? this.diffPage('coop') : this.twoPage()) },
+      { label: 'VERSUS', act: () => this.ui!.push(this.diffPage('versus')), visible: () => !!tv },
+      { label: 'DAILY SEED', value: undefined, act: () => this.start('single', 'normal', dailySeed()) },
+      { label: 'ENTER SEED', act: () => this.ui!.push(this.seedPage()) },
+    ];
+    if (tv) items.push(
+      { label: 'PAIR A CONTROLLER', act: () => this.ui!.push({ title: 'PAIR A PHONE', side: true, items: [{ label: 'DONE', act: () => this.ui!.back() }] }) },
+      { label: 'DISCONNECT CONTROLLERS', act: () => { tv.kickAll(); this.ui!.toast('CONTROLLERS DISCONNECTED'); } },
+      { label: 'NEW PAIRING CODE', act: () => { tv.newCode(); this.ui!.toast('NEW CODE'); } },
+    );
+    items.push(
+      { label: 'OPTIONS', act: () => this.ui!.push(this.optionsPage()) },
+      { label: 'HIGH SCORES', act: () => this.ui!.push(this.scoresPage()) },
+      { label: 'INSTALL APP', visible: () => !tv && (canInstall() || iosInstallHint()), act: () => this.install() },
+      { label: () => (isFullscreen() ? 'EXIT FULLSCREEN' : 'FULLSCREEN'), visible: () => !(window as any).__LR_APP__ && fullscreenSupported(),
+        act: () => { void toggleFullscreen(); } },
+    );
+    return { items };
   }
-  
-  private updateDifficultyDisplay(): void {
-    this.difficultyTexts.forEach((text, i) => {
-      if (i === this.selectedDifficulty) {
-        text.setStyle({ fontSize: '26px' });
-        text.setText('> ' + ['EASY', 'NORMAL', 'HARD', 'NINJA'][i] + ' <');
-      } else {
-        text.setStyle({ fontSize: '22px' });
-        text.setText(['EASY', 'NORMAL', 'HARD', 'NINJA'][i]);
-      }
+
+  private twoPage(): Page {
+    return {
+      title: '2 PLAYERS',
+      body: 'P1: WASD + Q/E  ·  P2: ARROWS / IJKL + U/O<br>or gamepads',
+      items: [
+        { label: 'CO-OP  (ONE BOARD)', act: () => this.ui!.push(this.diffPage('coop')) },
+        { label: 'VERSUS (SPLIT SCREEN)', act: () => this.ui!.push(this.diffPage('versus')) },
+        { label: 'BACK', act: () => this.ui!.back(), cls: 'dim' },
+      ],
+    };
+  }
+
+  private diffPage(mode: Mode, seed?: string): Page {
+    const items: Item[] = DIFFS.map(d => ({
+      label: d.toUpperCase(),
+      act: () => this.start(mode, d, seed),
+    }));
+    items.push({ label: 'BACK', act: () => this.ui!.back(), cls: 'dim' });
+    const title = mode === 'single' ? 'DIFFICULTY' : mode === 'coop' ? 'CO-OP · DIFFICULTY' : 'VERSUS · DIFFICULTY';
+    return { title, items, focus: Math.max(0, DIFFS.indexOf(this.diff)) };
+  }
+
+  private seedPage(): Page {
+    const inp = textInput({ value: this.seed, max: 8, placeholder: 'RANDOM', filter: SEED_RE, onEnter: v => { this.seed = v; this.ui!.render(); } });
+    inp.addEventListener('input', () => { this.seed = inp.value; });
+    const has = () => this.seed.length > 0;
+    return {
+      title: 'SEED',
+      body: 'Same seed + difficulty = same levels.<br>Share a link to race a friend.',
+      items: [
+        { label: 'SEED', input: inp },
+        { label: 'DIFFICULTY', value: () => this.diff.toUpperCase(), cycle: d => { this.diff = DIFFS[(DIFFS.indexOf(this.diff) + d + 4) % 4]; } },
+        { label: 'START', cls: 'accent', act: () => this.start('single', this.diff, this.seed || undefined) },
+        { label: 'COPY LINK', visible: has, act: () => this.copyLink() },
+        { label: 'SHARE…', visible: () => has() && !!navigator.share, act: () => {
+          navigator.share({ title: 'Lode Runner 2099', text: `Beat seed ${this.seed} [${this.diff.toUpperCase()}]`, url: shareUrl(this.seed, this.diff) }).catch(() => {});
+        } },
+        { label: 'BACK', act: () => this.ui!.back(), cls: 'dim' },
+      ],
+    };
+  }
+
+  private optionsPage(): Page {
+    const sm = getSoundManager();
+    const cyc = <T>(list: T[], cur: T, d: number): T => list[(list.indexOf(cur) + d + list.length) % list.length];
+    const themes = Object.keys(THEMES);
+    const idle = [0, 2, 5, 10, 15, 30];
+    const tvMode = isTV();
+    return {
+      title: 'OPTIONS',
+      items: [
+        { label: 'MUSIC', value: () => ({ procedural: 'SYNTH', radio: 'RADIO', off: 'OFF' } as any)[sm.getMusicMode()],
+          cycle: d => sm.setMusicMode(cyc(['procedural', 'radio', 'off'] as const as any[], sm.getMusicMode(), d)) },
+        { label: 'SOUND FX', value: () => (sm.isEnabled() ? 'ON' : 'OFF'), cycle: () => { sm.toggle(); } },
+        { label: 'THEME', value: () => THEMES[Settings.theme].name?.toUpperCase?.() ?? Settings.theme.toUpperCase(),
+          cycle: d => { Settings.theme = cyc(themes, Settings.theme, d); } },
+        { label: 'CRT EFFECT', value: () => (Settings.crt ? 'ON' : 'OFF'), cycle: () => { Settings.crt = !Settings.crt; } },
+        { label: 'GAME SPEED', value: () => `${CONFIG.SPEED_MULTIPLIERS[Settings.speedIndex]}×`,
+          cycle: d => { Settings.speedIndex = Math.max(0, Math.min(CONFIG.SPEED_MULTIPLIERS.length - 1, Settings.speedIndex + d)); } },
+        { label: 'REDUCED MOTION', value: () => Settings.reducedMotion.toUpperCase(),
+          cycle: d => { Settings.reducedMotion = cyc(['auto', 'on', 'off'] as const as any[], Settings.reducedMotion, d); } },
+        { label: 'IDLE SCREEN', visible: () => tvMode, value: () => (Settings.idleMinutes ? `${Settings.idleMinutes} MIN` : 'OFF'),
+          cycle: d => { Settings.idleMinutes = cyc(idle, idle.includes(Settings.idleMinutes) ? Settings.idleMinutes : 5, d); } },
+        { label: 'RADIO WHEN IDLE', visible: () => tvMode, value: () => (Settings.idleRadio ? 'ON' : 'OFF'), cycle: () => { Settings.idleRadio = !Settings.idleRadio; } },
+        { label: 'CONTROLS', act: () => this.ui!.push(this.controlsPage()) },
+        { label: 'BACK', act: () => this.ui!.back(), cls: 'dim' },
+      ],
+    };
+  }
+
+  private controlsPage(): Page {
+    const rows = [
+      ['MOVE', 'ARROWS / WASD · D-PAD · STICK'], ['DIG LEFT / RIGHT', 'Z X · Q E · A B · ⏪ ⏩'],
+      ['PAUSE', 'P · START · ⏯'], ['MENU', 'ESC ×2 · BACK'], ['SPEED', '+ / −'], ['THEME · CRT', 'T · C'],
+      ['MUTE · MUSIC', 'M · B'], ['PHONE PAD', 'TV MENU → PAIR'],
+    ];
+    return {
+      title: 'CONTROLS',
+      body: `<table>${rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`).join('')}</table>`,
+      items: [{ label: 'BACK', act: () => this.ui!.back(), cls: 'dim' }],
+    };
+  }
+
+  private scoresPage(): Page {
+    const s = getHighScores().getScores();
+    const esc = (t: string) => t.replace(/[<>&"]/g, c => `&#${c.charCodeAt(0)};`);
+    const body = s.length
+      ? `<table>${s.map((e, i) => `<tr><td>${i + 1}.</td><td>${esc(e.name)}</td><td class="n">${e.score}</td><td>L${e.level}</td><td>${e.difficulty.slice(0, 3).toUpperCase()}</td></tr>`).join('')}</table>`
+      : 'No scores yet — go set one!';
+    return { title: 'HIGH SCORES', body, items: [{ label: 'BACK', act: () => this.ui!.back(), cls: 'dim' }] };
+  }
+
+  private install(): void {
+    if (canInstall()) { void promptInstall(); return; }
+    this.ui!.push({
+      title: 'INSTALL',
+      body: 'On iPhone / iPad: tap <b>Share</b> <span style="font-size:1.3em">⎙</span><br>then <b>Add to Home Screen</b>.',
+      items: [{ label: 'OK', act: () => this.ui!.back() }],
     });
   }
-  
-  private updateSeedDisplay(): void {
-    if (this.seedInput.length > 0) {
-      this.seedText.setText('[ ' + this.seedInput + ' ]');
-    } else {
-      this.seedText.setText('[ RANDOM ]');
-    }
+
+  private copyLink(): void {
+    const url = shareUrl(this.seed, this.diff);
+    const ok = () => this.ui?.toast('LINK COPIED');
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(ok, () => this.ui?.toast(url, 5000));
+    else this.ui?.toast(url, 5000);
   }
-  
-  private clearSeedAndNotice(): void {
-    this.seedInput = '';
-    this.updateSeedDisplay();
-    
-    // Also remove shared notice if present
-    if (this.shareNotice) {
-      this.shareNotice.destroy();
-      this.shareNotice = null;
-    }
-    
-    // Clear URL params
-    if (window.history.replaceState) {
-      window.history.replaceState({}, '', window.location.pathname);
-    }
+
+  private renderPairing(el: HTMLElement, tv: TVPairing, big: boolean): void {
+    const slot = (n: number) => {
+      const p = tv.pads.find(x => x.slot === n);
+      const name = p ? p.name.replace(/[<>&"]/g, '') : '— EMPTY —';
+      return `<div class="slot p${n}${p ? ' on' : ''}"><b>P${n}</b>${name}</div>`;
+    };
+    const spect = tv.pads.filter(p => p.slot > 2).length;
+    el.innerHTML = tv.code
+      ? `<div>SCAN TO USE YOUR PHONE</div><img class="qr${big ? ' big' : ''}" alt="" src="${tv.qrImageUrl()}">
+         <div class="url">${location.host}/pad</div><div class="code">${tv.code}</div>
+         <div class="slots">${slot(1)}${slot(2)}</div>${spect ? `<div class="url">+${spect} watching</div>` : ''}`
+      : `<div>${tv.connected ? '' : 'CONNECTING…'}</div>`;
   }
-  
-  private startGame(): void {
+
+  // ---------------- start ----------------
+  private start(mode: Mode, difficulty: string, seed?: string): void {
     if (this.starting) return;
     this.starting = true;
-    getSoundManager().playMenuConfirm();
-    const seed = this.seedInput.length > 0 ? this.seedInput : generateSeedCode();
-    this.scene.start('GameScene', {
-      difficulty: this.difficultyKeys[this.selectedDifficulty],
-      seed: seed,
-      players: this.players,
-    });
+    const s = (seed || generateSeedCode()).toUpperCase().replace(SEED_RE, '').slice(0, 8) || generateSeedCode();
+    Settings.lastSeed = s;
+    this.diff = difficulty;
+    try { localStorage.setItem('lr2099.diff', difficulty); } catch { /* ignore */ }
+    getSoundManager().resume();
+    getSoundManager().stopMusic();
+    this.ui?.root.style.setProperty('transition', 'opacity .25s');
+    if (this.ui) this.ui.root.style.opacity = '0';
+    this.cameras.main.fadeOut(250, 0, 0, 0);
+    this.time.delayedCall(260, () => this.scene.start('GameScene', { difficulty, seed: s, mode, tv: isTV() }));
   }
-  
-  /**
-   * Parse URL query params for shared game links
-   */
-  private parseURLParams(): void {
-    const params = new URLSearchParams(window.location.search);
-    
-    const seed = params.get('seed');
-    if (seed) {
-      this.seedInput = seed.toUpperCase().substring(0, 8);
-      this.updateSeedDisplay();
-    }
-    
-    this.players = params.get('p') === '2' ? 2 : 1;
-    const diff = params.get('diff');
-    if (diff && this.difficultyKeys.includes(diff)) {
-      const index = this.difficultyKeys.indexOf(diff);
-      this.selectedDifficulty = index;
-      this.updateDifficultyDisplay();
-    }
-    
-    // If both seed and difficulty are in URL, show "shared game" notice
-    if (seed && diff) {
-      this.shareNotice = this.add.text(CONFIG.GAME_WIDTH / 2, 122,
-        `\u2192 SHARED: ${seed} [${diff.toUpperCase()}] \u2190`, {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: '#00ff88'
-      });
-      this.shareNotice.setOrigin(0.5);
-    }
-    
-    // Auto-start if 'start' param is present
-    const autoStart = params.get('start');
-    if (autoStart === '1' || autoStart === 'true') {
-      // Delay slightly to ensure everything is initialized
-      this.time.delayedCall(100, () => this.startGame());
-    }
+
+  /** ?seed=XXX&diff=normal[&mode=coop|versus][&p=2] starts that game once per page load. */
+  private deepLink(): boolean {
+    if (deepLinkDone) return false;
+    deepLinkDone = true;
+    const q = new URLSearchParams(location.search);
+    const seed = q.get('seed'), diff = q.get('diff') ?? 'normal';
+    if (!seed) return false;
+    const m = q.get('mode');
+    const mode: Mode = m === 'coop' || m === 'versus' ? m : q.get('p') === '2' ? 'coop' : 'single';
+    this.start(mode, DIFFICULTIES[diff] ? diff : 'normal', seed);
+    return true;
   }
 }
