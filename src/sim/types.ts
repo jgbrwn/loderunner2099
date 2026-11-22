@@ -52,6 +52,7 @@ export interface SimGuard extends Actor {
   dir: Dir;
   carry: number;        // gold id or -1
   carryTimer: number;   // cells to walk before dropping
+  carryAge: number;     // ticks carrying an assisted gold (forced drop after ASSIST_MAX_CARRY_TICKS)
   trapTicks: number;
   holeX: number; holeY: number;  // hole being escaped (-1 none)
   escapeTicks: number;

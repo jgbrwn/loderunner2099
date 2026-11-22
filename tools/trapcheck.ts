@@ -43,11 +43,12 @@ for (const diff of ['normal', 'hard', 'ninja']) {
     w.started = true;
     const reach = (x: number, y: number) => an.reach[y * W + x] || map.goldDropCells.some(c => c.x === x && c.y === y);
     const ag = w.golds.filter(o => o.assisted);
-    const done = () => ag.every(o => o.collected || (o.carriedBy < 0 && reach(o.x, o.y) && !(assisted.some(a => a.x === o.x && a.y === o.y))));
-    for (let t = 0; t < LIMIT * TICK_HZ && !done(); t++) { w.tick([NO_INPUT]); w.drainEvents(); if (t % (4 * TICK_HZ) === 0) hop(); }
-    const ok = ag.filter(o => o.collected || (o.carriedBy < 0 && reach(o.x, o.y) && !assisted.some(a => a.x === o.x && a.y === o.y))).length;
+    const delivered = new Set<number>(); // ever dropped on a player-reachable cell
+    const done = () => ag.every(o => o.collected || delivered.has(o.id) || (o.carriedBy < 0 && reach(o.x, o.y) && !(assisted.some(a => a.x === o.x && a.y === o.y))));
+    for (let t = 0; t < LIMIT * TICK_HZ && !done(); t++) { w.tick([NO_INPUT]); for (const e of w.drainEvents()) if (e.t === 'goldDrop' && reach(e.x, e.y)) for (const o of ag) if (o.x === e.x && o.y === e.y && o.carriedBy < 0) delivered.add(o.id); if (t % (4 * TICK_HZ) === 0) hop(); }
+    const ok = ag.filter(o => o.collected || delivered.has(o.id) || (o.carriedBy < 0 && reach(o.x, o.y) && !assisted.some(a => a.x === o.x && a.y === o.y))).length;
     aTot += ag.length; aDel += ok;
-    if (ok < ag.length) { failA.push(seed); for (const o of ag) { const orig = assisted.some(a => a.x === o.x && a.y === o.y); const k = o.collected ? 'C' : o.carriedBy >= 0 ? 'carried' : orig ? 'untouched' : reach(o.x, o.y) ? 'ok' : 'badDrop'; why[k] = (why[k] ?? 0) + 1; } }
+    if (ok < ag.length) { failA.push(seed); for (const o of ag) { const orig = assisted.some(a => a.x === o.x && a.y === o.y); const k = o.collected || delivered.has(o.id) ? 'C' : o.collected ? 'C' : o.carriedBy >= 0 ? 'carried' : orig ? 'untouched' : reach(o.x, o.y) ? 'ok' : 'badDrop'; why[k] = (why[k] ?? 0) + 1; } }
   }
   console.log(`${diff}: assisted delivered ${aDel}/${aTot} (${aTot ? (100 * aDel / aTot).toFixed(1) : '-'}%) why=${JSON.stringify(why)} fail=[${failA.slice(0, 12).join(' ')}]`);
   console.log(`   trap pits: exit-softlock levels=${exitPits} gold-loss levels=${goldPits} [${failB.slice(0, 10).join(' ')}]`);

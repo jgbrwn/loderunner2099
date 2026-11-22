@@ -4,10 +4,11 @@ import type { TileMap } from '../level/TileMap';
 import { SeededRandom } from '../utils/SeededRandom';
 import {
   SUB, HALF, RUN_SPEED, FALL_SPEED, GUARD_SPEED_FACTOR, DIG_TICKS, HOLE_TICKS,
-  GUARD_RESPAWN_TICKS, GUARD_SPAWN_ANIM_TICKS, PLAYER_RESPAWN_TICKS, SCORE, NO_INPUT,
+  GUARD_RESPAWN_TICKS, GUARD_SPAWN_ANIM_TICKS, PLAYER_RESPAWN_TICKS, SCORE, NO_INPUT, TICK_HZ,
   type Actor, type Dir, type SimEvent, type SimGold, type SimGuard, type SimHole,
   type SimInput, type SimOptions, type SimPlayer, type SimStatus,
 } from './types';
+const ASSIST_MAX_CARRY_TICKS = 25 * TICK_HZ;
 import { classicGuardMove, bfsFirstDir, bfsDist, moveGraph } from './guardAI';
 
 const T = TileType;
@@ -108,7 +109,7 @@ export class World {
       respawnTicks: 0, score: 0 };
   }
   private makeGuard(id: number, x: number, y: number): SimGuard {
-    return { id, cx: x, cy: y, ox: 0, oy: 0, mode: 'idle', facing: -1, acc: 0, dir: null, carry: -1, carryTimer: 0,
+    return { id, cx: x, cy: y, ox: 0, oy: 0, mode: 'idle', facing: -1, acc: 0, dir: null, carry: -1, carryTimer: 0, carryAge: 0,
       trapTicks: 0, holeX: -1, holeY: -1, escapeTicks: 0, spawnTicks: 0, noPickX: -1, noPickY: -1 };
   }
   private findSecondStart(s: { x: number; y: number }): { x: number; y: number } {
@@ -375,6 +376,7 @@ export class World {
     if (g.mode === 'dead') { if (--g.spawnTicks <= 0) this.spawnGuard(g); return; }
     if (g.mode === 'spawning') { if (--g.spawnTicks <= 0) g.mode = 'idle'; return; }
     if (!this.started) return;
+    if (g.carry >= 0 && this.golds[g.carry].assisted) { if (++g.carryAge >= ASSIST_MAX_CARRY_TICKS) this.forceDrop(g); } else g.carryAge = 0;
     if (g.mode === 'trapped') { if (--g.trapTicks <= 0) g.mode = 'escape'; return; }
     g.acc += g.mode === 'fall' ? FALL_SPEED : this.guardSpeed;
     while (g.acc >= 1000) {
@@ -382,6 +384,32 @@ export class World {
       if (!this.guardStep(g)) { g.acc = 0; break; }
       if ((g.mode as string) === 'trapped') { g.acc = 0; break; }
     }
+  }
+
+  /** Hard guarantee: hand assisted gold over at the nearest drop cell (BFS from the guard, else Manhattan). */
+  private forceDrop(g: SimGuard): void {
+    let pos: [number, number] | null = null;
+    const seen = new Set<number>([g.cy * this.width + g.cx]), q: [number, number][] = [[g.cx, g.cy]];
+    while (q.length && !pos) {
+      const [x, y] = q.shift()!;
+      if (this.canDrop(x, y)) { pos = [x, y]; break; }
+      for (const [, nx, ny] of moveGraph(this, x, y, false)) {
+        const k = ny * this.width + nx;
+        if (!seen.has(k)) { seen.add(k); q.push([nx, ny]); }
+      }
+    }
+    if (!pos) {
+      let bd = Infinity;
+      for (let y = 0; y < this.height; y++) for (let x = 0; x < this.width; x++) {
+        const d = Math.abs(x - g.cx) + Math.abs(y - g.cy);
+        if (d < bd && this.canDrop(x, y)) { bd = d; pos = [x, y]; }
+      }
+    }
+    if (!pos) return;
+    const gold = this.golds[g.carry];
+    gold.carriedBy = -1; gold.x = pos[0]; gold.y = pos[1];
+    g.carry = -1; g.carryAge = 0; g.noPickX = pos[0]; g.noPickY = pos[1];
+    this.emit({ t: 'goldDrop', g: g.id, x: pos[0], y: pos[1] });
   }
 
   private canDrop(x: number, y: number): boolean {
