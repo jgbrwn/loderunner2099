@@ -118,6 +118,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String serverUrl() { return homeUrl; }
         @JavascriptInterface public void exit() { handler.post(new Runnable() { @Override public void run() { finish(); } }); }
         @JavascriptInterface public void setRotateRemote(boolean on) { rotateRemote = on; }
+        @JavascriptInterface public void setSinglePlayer(boolean on) {
+            singlePlayer = on;
+            padPlayer.clear(); padPlayers = 0;
+        }
         @JavascriptInterface public void setRemoteIsP1(boolean on) {
             remoteIsP1 = on;
             padPlayer.clear(); padPlayers = 0; // re-assign on next input
@@ -162,8 +166,13 @@ public class MainActivity extends Activity {
         return named && (s & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD;
     }
 
+    // singlePlayer mirrors every controller onto player 0 so a BT gamepad always works in 1P,
+    // while the TV remote keeps working too. Set by the page on game start (mode).
+    private boolean singlePlayer = true;
+
     private void sendPad(int player, String action, boolean down) {
-        String js = "(function(){try{var i=window.__INPUT__;if(i)i.remote.feedMessage({p:" + player
+        int p = singlePlayer ? 0 : player;
+        String js = "(function(){try{var i=window.__INPUT__;if(i)i.remote.feedMessage({p:" + p
             + ",action:'" + action + "',down:" + down + "});}catch(e){}})()";
         web.evaluateJavascript(js, null);
     }

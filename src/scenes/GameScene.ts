@@ -77,6 +77,7 @@ export class GameScene extends Phaser.Scene {
     this.seedCode = data.seed || generateSeedCode();
     this.mode = data.mode === 'coop' || data.mode === 'versus' ? data.mode : data.players === 2 ? 'coop' : 'single';
     this.tvMode = !!data.tv;
+    (window as any).LR2099TV?.setSinglePlayer?.(this.mode === 'single');
     this.lives = DIFFICULTIES[this.difficulty].lives;
     this.level = 1;
     this.gameOver = this.paused = this.transitioning = this.leaving = false;
