@@ -17,15 +17,21 @@ export class AttractDemo {
   private restartAt = 0;
   private lastGoldTick = 0;
   private n = 0;
+  private viewTheme: import("../config").Theme | null = null;
 
   constructor(private scene: Phaser.Scene) {
     this.view = new FieldView(scene, computeLayout(1)[0], THEMES[Settings.theme]);
+    // Live theme switching: the Options page writes Settings.theme; adopt it here every frame.
+    scene.events.on('update', () => {
+      const t = THEMES[Settings.theme];
+      if (t && t !== this.viewTheme) { this.viewTheme = t; this.view.setTheme(t); scene.cameras.main.setBackgroundColor(t.background); }
+    });
     this.next(scene.time.now);
   }
 
   private next(time: number): void {
     const keys = Object.keys(THEMES);
-    if (this.n++ > 0) this.view.setTheme(THEMES[keys[this.n % keys.length]]);
+    if (this.n++ > 0) { const t = THEMES[keys[this.n % keys.length]]; this.viewTheme = t; this.view.setTheme(t); this.scene.cameras.main.setBackgroundColor(t.background); }
     const seed = `DEMO${Math.floor(Math.random() * 1e6)}`;
     const diff = 'easy';
     const map = new LevelGenerator(seed, diff, 1 + (this.n % 4)).generateWithInfo(1).map;
