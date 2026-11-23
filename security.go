@@ -137,7 +137,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		h := w.Header()
 		ws := "wss://" + r.Host + " ws://" + r.Host
 		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
-			"img-src 'self' data: blob: https://*.radioparadise.com; media-src 'self' blob: data: https://*.radioparadise.com https://*.somafm.com; "+
+			"img-src 'self' data: blob: https://*.radioparadise.com https://somafm.com; media-src 'self' blob: data: https://*.radioparadise.com https://*.somafm.com; "+
 			"connect-src 'self' "+ws+" https://*.radioparadise.com; font-src 'self' data:; worker-src 'self' blob:; "+
 			"manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")

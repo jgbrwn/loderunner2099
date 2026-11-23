@@ -31,6 +31,7 @@ func newMux(distDir string, hub *Hub, radio *Radio) http.Handler {
 	mux.HandleFunc("/ws/tv", limitWS(hub.HandleTV))
 	mux.HandleFunc("/ws/pad", limitWS(hub.HandlePad))
 	mux.HandleFunc("/api/radio/now", limitAPI(radio.Handle))
+	mux.HandleFunc("/api/radio/soma", limitAPI(NewSoma(nil).Handle))
 	mux.HandleFunc("/api/qr", limitAPI(handleQR))
 	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) { serveAPK(w, r, distDir) })
 	mux.HandleFunc("/", staticHandler(distDir))

@@ -26,12 +26,12 @@ export class RadioPlayer {
     }
     this.setVolume(volume);
     if (station === 'soma') this.info = { title: 'Space Station Soma', artist: 'SomaFM', coverUrl: '' };
-    else await this.poll();
+    await this.poll();
     if (!this.active) return;
     const url = station === 'soma' ? SOMA_STREAM : (this.streamUrl || FALLBACK_STREAM);
     if (this.audio.src !== url) this.audio.src = url;
     this.tryPlay();
-    if (station === 'rp' && this.timer === null) this.timer = setInterval(() => { void this.poll(); }, POLL_MS);
+    if (this.timer === null) this.timer = setInterval(() => { void this.poll(); }, POLL_MS);
   }
 
   /** Call from a user gesture if autoplay was blocked. */
@@ -55,12 +55,12 @@ export class RadioPlayer {
 
   private async poll(): Promise<void> {
     try {
-      const r = await fetch('/api/radio/now', { cache: 'no-store' });
+      const r = await fetch(this.station === 'soma' ? '/api/radio/soma' : '/api/radio/now', { cache: 'no-store' });
       if (!r.ok) return;
       const j = await r.json();
       if (j && typeof j === 'object') {
         this.info = { title: String(j.title ?? ''), artist: String(j.artist ?? ''), coverUrl: String(j.coverUrl ?? '') };
-        if (typeof j.streamUrl === 'string' && j.streamUrl) this.streamUrl = j.streamUrl;
+        if (this.station === 'rp' && typeof j.streamUrl === 'string' && j.streamUrl) this.streamUrl = j.streamUrl;
       }
     } catch { /* endpoint missing: keep fallback */ }
   }

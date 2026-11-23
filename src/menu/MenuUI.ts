@@ -169,7 +169,7 @@ export class MenuUI {
       } else {
         el.innerHTML = `<span class="lb">${lbl(it)}</span>` + (it.value ? `<span class="v"><b data-d="-1">◀</b>${it.value()}<b data-d="1">▶</b></span>` : '');
       }
-      el.addEventListener('pointerenter', ev => { if ((ev as PointerEvent).pointerType === 'mouse') this.focus(i, false); });
+      el.addEventListener('pointermove', ev => { if ((ev as PointerEvent).pointerType === 'mouse' && (ev.movementX || ev.movementY) && this.stack[this.stack.length - 1]?.idx !== i) this.focus(i, false); });
       el.addEventListener('click', ev => {
         if (it.input) { this.focus(i, false); return; }
         this.focus(i, false);

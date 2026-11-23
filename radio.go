@@ -14,7 +14,25 @@ const (
 	rpNowURL    = "https://api.radioparadise.com/api/now_playing?chan=0"
 	rpStreamURL = "https://stream.radioparadise.com/aac-128"
 	radioTTL    = 15 * time.Second
+
+	somaNowURL    = "https://somafm.com/songs/spacestation.json"
+	somaStreamURL = "https://ice2.somafm.com/spacestation-128-aac"
+	somaCoverURL  = "https://somafm.com/img3/spacestation-400.jpg"
 )
+
+func parseSoma(body []byte) (NowPlaying, error) {
+	var raw struct {
+		Songs []struct{ Title, Artist, Album, AlbumArt string } `json:"songs"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return NowPlaying{}, err
+	}
+	np := NowPlaying{CoverURL: somaCoverURL, StreamURL: somaStreamURL}
+	if len(raw.Songs) > 0 {
+		np.Title, np.Artist = clip(raw.Songs[0].Title, 200), clip(raw.Songs[0].Artist, 200)
+	}
+	return np, nil
+}
 
 type NowPlaying struct {
 	Title     string `json:"title"`
@@ -27,6 +45,8 @@ type NowPlaying struct {
 type Radio struct {
 	Client *http.Client
 	URL    string
+	Parse  func([]byte) (NowPlaying, error)
+	Stream string
 	mu     sync.Mutex
 	cached NowPlaying
 	at     time.Time
@@ -36,7 +56,14 @@ func NewRadio(c *http.Client) *Radio {
 	if c == nil {
 		c = &http.Client{Timeout: 5 * time.Second}
 	}
-	return &Radio{Client: c, URL: rpNowURL}
+	return &Radio{Client: c, URL: rpNowURL, Parse: parseRP, Stream: rpStreamURL}
+}
+
+// NewSoma returns a Radio for SomaFM Space Station.
+func NewSoma(c *http.Client) *Radio {
+	r := NewRadio(c)
+	r.URL, r.Parse, r.Stream = somaNowURL, parseSoma, somaStreamURL
+	return r
 }
 
 func parseRP(body []byte) (NowPlaying, error) {
@@ -67,7 +94,7 @@ func (r *Radio) Now(ctx context.Context) NowPlaying {
 	if err != nil {
 		// keep serving stale data (or just the stream URL); retry after a short pause
 		if r.cached.StreamURL == "" {
-			r.cached = NowPlaying{StreamURL: rpStreamURL}
+			r.cached = NowPlaying{StreamURL: r.Stream}
 		}
 		r.at = time.Now().Add(-radioTTL + 5*time.Second)
 		return r.cached
@@ -93,7 +120,10 @@ func (r *Radio) fetch(ctx context.Context) (NowPlaying, error) {
 	if err != nil {
 		return NowPlaying{}, err
 	}
-	return parseRP(body)
+	if r.Parse == nil {
+		return parseRP(body)
+	}
+	return r.Parse(body)
 }
 
 func (r *Radio) Handle(w http.ResponseWriter, req *http.Request) {
