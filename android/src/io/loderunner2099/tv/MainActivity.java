@@ -151,8 +151,15 @@ public class MainActivity extends Activity {
         InputDevice d = InputDevice.getDevice(deviceId);
         if (d == null) return false;
         int s = d.getSources();
-        return (s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
-            || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+        if ((s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+            || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return true;
+        // Switch-protocol pads (8BitDo Ultimate C BT, Pro Controller) sometimes expose only DPAD/KEYBOARD.
+        String n = d.getName();
+        if (n == null) return false;
+        n = n.toLowerCase();
+        boolean named = n.contains("8bitdo") || n.contains("pro controller") || n.contains("switch")
+            || n.contains("gamepad") || n.contains("joystick") || n.contains("controller");
+        return named && (s & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD;
     }
 
     private void sendPad(int player, String action, boolean down) {
@@ -172,8 +179,11 @@ public class MainActivity extends Activity {
         float ry = e.getAxisValue(MotionEvent.AXIS_RZ);
         float lt = e.getAxisValue(MotionEvent.AXIS_LTRIGGER);
         float rt = e.getAxisValue(MotionEvent.AXIS_RTRIGGER);
+        float hatX = e.getAxisValue(MotionEvent.AXIS_HAT_X);
+        float hatY = e.getAxisValue(MotionEvent.AXIS_HAT_Y);
         float dz = 0.5f;
-        boolean[] now = { lx < -dz || rx < -dz, lx > dz || rx > dz, ly < -dz || ry < -dz, ly > dz || ry > dz };
+        boolean[] now = { lx < -dz || rx < -dz || hatX < -dz, lx > dz || rx > dz || hatX > dz,
+                          ly < -dz || ry < -dz || hatY < -dz, ly > dz || ry > dz || hatY > dz };
         String[] names = { "left", "right", "up", "down" };
         for (int i = 0; i < 4; i++) {
             if (now[i] != stickState[i]) { stickState[i] = now[i]; sendPad(player, names[i], now[i]); }
@@ -203,12 +213,19 @@ public class MainActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_DOWN:  action = "down"; break;
             case KeyEvent.KEYCODE_BUTTON_A:   action = "confirm"; break;
             case KeyEvent.KEYCODE_BUTTON_B:   action = "back"; break;
+            case KeyEvent.KEYCODE_BUTTON_C:   action = "confirm"; break;  // some Switch-layout pads
             case KeyEvent.KEYCODE_BUTTON_X:   action = "digLeft"; break;
             case KeyEvent.KEYCODE_BUTTON_Y:   action = "digRight"; break;
+            case KeyEvent.KEYCODE_BUTTON_Z:   action = "digRight"; break;
             case KeyEvent.KEYCODE_BUTTON_L1:  action = "digLeft"; break;
             case KeyEvent.KEYCODE_BUTTON_R1:  action = "digRight"; break;
+            case KeyEvent.KEYCODE_BUTTON_L2:  action = "digLeft"; break;
+            case KeyEvent.KEYCODE_BUTTON_R2:  action = "digRight"; break;
             case KeyEvent.KEYCODE_BUTTON_START: action = "pause"; break;
             case KeyEvent.KEYCODE_BUTTON_SELECT: action = "back"; break;
+            case KeyEvent.KEYCODE_BUTTON_MODE: action = "pause"; break;   // home/guide on some pads
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: break;                  // stick clicks: ignore
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: break;
             default: return true; // consume other gamepad buttons
         }
         if (action != null) sendPad(player, action, down);

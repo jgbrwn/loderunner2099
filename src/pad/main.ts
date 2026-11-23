@@ -22,7 +22,11 @@ const clientId = ls('lr2099.padId') || (ls('lr2099.padId', Math.random().toStrin
 const q = new URLSearchParams(location.search);
 const codeIn = $<HTMLInputElement>('code'), nameIn = $<HTMLInputElement>('name');
 codeIn.value = (q.get('code') || q.get('room') || '').toUpperCase().replace(ALPH, '').slice(0, 4);
-nameIn.value = ls('lr2099.padName');
+{
+  const shared = ls('lr2099.playerName');
+  nameIn.value = shared || ls('lr2099.padName');
+  if (!shared && nameIn.value) ls('lr2099.playerName', nameIn.value.trim().slice(0, 12));
+}
 codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.toUpperCase().replace(ALPH, '').slice(0, 4); });
 
 let ws: WebSocket | null = null;
@@ -38,6 +42,7 @@ $('joinForm').addEventListener('submit', e => {
   code = codeIn.value;
   if (code.length !== 4) { $('joinMsg').textContent = 'Enter the 4-character code from the TV'; return; }
   ls('lr2099.padName', nameIn.value.trim());
+  ls('lr2099.playerName', nameIn.value.trim().slice(0, 12));
   history.replaceState(null, '', `${location.pathname}?code=${code}`);
   goFull();
   start();
