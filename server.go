@@ -21,7 +21,14 @@ func main() {
 	hub := NewHub(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","))
 	go hub.janitor(30 * time.Second)
 	radio := NewRadio(nil)
-	srv := &http.Server{Addr: ":" + port, Handler: newMux(distDir, hub, radio), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           newMux(distDir, hub, radio),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:  30 * time.Second,  // covers header+body of a normal request; WS upgrade returns before body read
+		IdleTimeout:  120 * time.Second, // keep-alive reaped. WriteTimeout deliberately unset: it would kill
+		// long-lived WebSockets; coder/websocket's 20s ping handles dead WS peers instead.
+	}
 	log.Printf("🎮 Lode Runner 2099 server running on http://localhost:%s (serving %s)", port, distDir)
 	log.Fatal(srv.ListenAndServe())
 }
@@ -35,7 +42,10 @@ func newMux(distDir string, hub *Hub, radio *Radio) http.Handler {
 	mux.HandleFunc("/api/qr", limitAPI(handleQR))
 	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) { serveAPK(w, r, distDir) })
 	mux.HandleFunc("/", staticHandler(distDir))
-	return securityHeaders(mux)
+	static := gzipStatic(distDir, mux)
+	mux2 := http.NewServeMux()
+	mux2.Handle("/", static)
+	return securityHeaders(mux2)
 }
 
 var pageRoutes = map[string]string{"/tv": "tv.html", "/tv/": "tv.html", "/pad": "pad.html", "/pad/": "pad.html"}
