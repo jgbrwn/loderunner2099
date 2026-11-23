@@ -158,9 +158,10 @@ const dp = $('dpad');
 dp.className = 'dpad';
 dp.innerHTML = DPAD_SVG;
 let dir: Dir = null;
-makeDpad(dp, d => {
+makeDpad(dp, (d, d2) => {
   let b = bits & ~(PAD_BITS.left | PAD_BITS.right | PAD_BITS.up | PAD_BITS.down);
   if (d) b |= PAD_BITS[d];
+  if (d2) b |= PAD_BITS[d2];
   dir = d;
   setBits(b);
 });

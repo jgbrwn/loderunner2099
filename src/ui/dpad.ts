@@ -17,18 +17,32 @@ export function resolveDir(dx: number, dy: number, radius: number, prev: Dir, de
 }
 
 /** Turns `el` into a D-pad. onChange fires with the new direction (null on release). */
-export function makeDpad(el: HTMLElement, onChange: (d: Dir) => void): () => void {
-  let pid: number | null = null, dir: Dir = null;
-  const set = (d: Dir) => {
-    if (d === dir) return;
-    dir = d;
+/** Secondary direction when the thumb is in a diagonal band (~±20° of 45°): both are reported so the player
+ *  "rounds" into a turn — keep running and take the ladder/drop as soon as it's possible. */
+export function diagonalSecondary(dx: number, dy: number, primary: Dir): Dir {
+  if (!primary) return null;
+  const d = Math.hypot(dx, dy);
+  if (Math.abs(Math.abs(dx) - Math.abs(dy)) >= d * 0.48) return null;
+  const horiz: Dir = dx < 0 ? 'left' : 'right', vert: Dir = dy < 0 ? 'up' : 'down';
+  return primary === horiz ? vert : primary === vert ? horiz : null;
+}
+
+/** Turns `el` into a D-pad. onChange fires with the new direction (null on release) and an optional second
+ *  direction while on a diagonal. */
+export function makeDpad(el: HTMLElement, onChange: (d: Dir, d2: Dir) => void): () => void {
+  let pid: number | null = null, dir: Dir = null, dir2: Dir = null;
+  const set = (d: Dir, d2: Dir = null) => {
+    if (d === dir && d2 === dir2) return;
+    if (d && d !== dir) vibrate(8);
+    dir = d; dir2 = d2;
     el.dataset.dir = d ?? '';
-    if (d) vibrate(8);
-    onChange(d);
+    onChange(d, d2);
   };
   const track = (e: PointerEvent) => {
     const r = el.getBoundingClientRect();
-    set(resolveDir(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2), r.width / 2, dir));
+    const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const d = resolveDir(dx, dy, r.width / 2, dir);
+    set(d, diagonalSecondary(dx, dy, d));
   };
   const down = (e: PointerEvent) => {
     if (pid !== null) return;

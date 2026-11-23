@@ -64,11 +64,13 @@ export class TouchOverlay {
     this.els.dpad = this.root.querySelector('.dpad')!;
     this.els.opt = this.root.querySelector('.opt')!;
     this.els.opt.addEventListener('click', () => this.openOptions());
-    let cur: Dir = null;
-    this.releaseDpad = makeDpad(this.els.dpad, d => {
+    let cur: Dir = null, cur2: Dir = null;
+    this.releaseDpad = makeDpad(this.els.dpad, (d, d2) => {
       if (cur) this.set(cur, false);
-      cur = d;
+      if (cur2) this.set(cur2, false);
+      cur = d; cur2 = d2;
       if (d) this.set(d, true);
+      if (d2) this.set(d2, true);
     });
     this.disposers.push(getInput().addSource(new StateSource(0, () => this.read())));
     this.disposers.push(keepAwake(() => !!this.game.scene?.isActive?.('GameScene')));
