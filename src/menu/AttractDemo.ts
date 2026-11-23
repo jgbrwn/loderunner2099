@@ -30,8 +30,8 @@ export class AttractDemo {
   }
 
   private next(time: number): void {
-    const keys = Object.keys(THEMES);
-    if (this.n++ > 0) { const t = THEMES[keys[this.n % keys.length]]; this.viewTheme = t; this.view.setTheme(t); this.scene.cameras.main.setBackgroundColor(t.background); }
+    this.n++;
+    // Always use the player's chosen theme (the Options page owns it); don't cycle on our own.
     const seed = `DEMO${Math.floor(Math.random() * 1e6)}`;
     const diff = 'easy';
     const map = new LevelGenerator(seed, diff, 1 + (this.n % 4)).generateWithInfo(1).map;
