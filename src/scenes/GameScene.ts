@@ -447,7 +447,14 @@ export class GameScene extends Phaser.Scene {
     const hs = getHighScores();
     const score = this.totalScore();
     const tail = '\n\nENTER / OK restart   ESC / BACK menu';
-    const who = this.mode === 'coop' ? 'CO-OP' : 'PLAYER';
+    let who = Settings.playerName || 'PLAYER';
+    if (this.mode !== 'single') {
+      const pads = (this.tv as any)?.pads as { name: string }[] | undefined;
+      const names = pads?.map(p => p.name).filter(Boolean) ?? [];
+      who = this.mode === 'coop'
+        ? (names.length ? names.join(' & ').slice(0, 24) : `${who} +1`)
+        : (names[0] || who);
+    }
     if (hs.isHighScore(score)) {
       const rank = hs.addScore({ name: who, score, level: this.level, difficulty: this.difficulty, seed: this.seedCode });
       this.showMessage(`GAME OVER\n\nNEW HIGH SCORE!\nRANK: #${rank}\nSCORE: ${score}${tail}`);

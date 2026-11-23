@@ -93,6 +93,7 @@ export class MenuScene extends Phaser.Scene {
       { label: 'NEW PAIRING CODE', act: () => { tv.newCode(); this.ui!.toast('NEW CODE'); } },
     );
     items.push(
+      { label: 'PLAYER NAME', value: () => Settings.playerName || 'PLAYER', act: () => this.ui!.push(this.namePage()) },
       { label: 'OPTIONS', act: () => this.ui!.push(this.optionsPage()) },
       { label: 'HIGH SCORES', act: () => this.ui!.push(this.scoresPage()) },
       { label: 'PLAY ON TV', visible: () => !tv, act: () => this.ui!.push(this.tvPage()) },
@@ -206,6 +207,19 @@ export class MenuScene extends Phaser.Scene {
       { label: 'COPY APP LINK', act: copy(apk) },
       { label: 'BACK', act: () => this.ui!.back(), cls: 'dim' },
     ] };
+  }
+
+  private namePage(): Page {
+    const inp = textInput({ value: Settings.playerName, max: 12, placeholder: 'PLAYER', filter: /[A-Za-z0-9 _-]/, onEnter: v => { Settings.playerName = v.trim(); this.ui!.render(); } });
+    inp.addEventListener('input', () => { Settings.playerName = inp.value.trim(); });
+    return {
+      title: 'PLAYER NAME',
+      body: 'Used on the high score table on this device.<br>On TV with phone controllers, each phone sets its own name.',
+      items: [
+        { label: 'NAME', input: inp },
+        { label: 'DONE', cls: 'accent', act: () => this.ui!.back() },
+      ],
+    };
   }
 
   private scoresPage(): Page {

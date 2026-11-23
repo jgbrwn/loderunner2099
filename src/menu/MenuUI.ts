@@ -46,8 +46,8 @@ body.lr-menu-open #touch-ui,body.lr-menu-open #touch-opts{visibility:hidden!impo
 #lr-menu .it.f{border-color:#0ff;background:rgba(0,90,110,.45);color:#fff;transform:scale(1.03);
  box-shadow:0 0 12px rgba(0,255,255,.55),inset 0 0 14px rgba(0,255,255,.25);text-shadow:0 0 8px #0ff}
 #lr-menu .it.f::before{content:'▶';color:#ff2bd6;margin-right:-4px;text-shadow:0 0 8px #f0f}
-#lr-menu .it .lb{flex:1}
-#lr-menu .it .v{color:#ffdd55;white-space:nowrap}
+#lr-menu .it .lb{flex:0 0 auto;white-space:nowrap}
+#lr-menu .it .v{color:#ffdd55;text-align:right;flex:1;min-width:0;font-size:.82em;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
 #lr-menu .it .v b{color:#0ff8;padding:0 .4em;cursor:pointer}
 #lr-menu .it.dim{opacity:.7}
 #lr-menu .it.accent{border-color:rgba(255,43,214,.5)}
