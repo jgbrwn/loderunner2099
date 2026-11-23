@@ -95,7 +95,8 @@ export class GameScene extends Phaser.Scene {
     this.events.once('shutdown', this.cleanup, this);
     const input = getInput();
     input.keyboard && (input.keyboard.letters = true);
-    input.setTwoPlayerKeys(this.numPlayers === 2);
+    if (this.tvMode && this.numPlayers === 2 && (window as any).LR2099TV?.gamepadSeen?.()) input.setTVRemoteP1();
+    else input.setTwoPlayerKeys(this.numPlayers === 2);
     input.swallow();
     getSoundManager().resume();
 

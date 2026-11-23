@@ -151,6 +151,12 @@ export class InputManager {
     return () => { this.extra = this.extra.filter(x => x !== s); };
   }
   setTwoPlayerKeys(on: boolean): void { this.keyboard?.setBindings(on ? TWO_PLAYER_BINDINGS : DEFAULT_BINDINGS); }
+  /** Android TV: remote (arrows) drives P1, BT controller (native) drives P2. */
+  setTVRemoteP1(): void {
+    const p1: KeyBindings = { ...DEFAULT_BINDINGS[0] };           // arrows + media keys
+    const p2: KeyBindings = { ...TWO_PLAYER_BINDINGS[0], pause: [], back: [], confirm: [] }; // WASD unused on TV
+    this.keyboard?.setBindings([p1, p2]);
+  }
   /** Call once per frame before reading. */
   update(): void {
     for (let p = 0; p < this.cur.length; p++) {

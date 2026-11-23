@@ -118,6 +118,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String serverUrl() { return homeUrl; }
         @JavascriptInterface public void exit() { handler.post(new Runnable() { @Override public void run() { finish(); } }); }
         @JavascriptInterface public void setRotateRemote(boolean on) { rotateRemote = on; }
+        @JavascriptInterface public void setRemoteIsP1(boolean on) {
+            remoteIsP1 = on;
+            padPlayer.clear(); padPlayers = 0; // re-assign on next input
+        }
         @JavascriptInterface public boolean gamepadSeen() { return !padPlayer.isEmpty(); }
     }
 
@@ -131,10 +135,14 @@ public class MainActivity extends Activity {
     private long lastStickSent = 0;
     private final boolean[] stickState = new boolean[4]; // L R U D latched state
 
+    // Player slots: BT controllers are assigned in connection order. If a gamepad is present and the
+    // remote-as-P1 preference is on, controllers start at player 1 so the TV remote stays player 0.
+    private boolean remoteIsP1 = true;
     private int playerFor(int deviceId) {
         Integer p = padPlayer.get(deviceId);
         if (p != null) return p;
-        int slot = Math.min(padPlayers++, 1);
+        int base = remoteIsP1 ? 1 : 0;
+        int slot = Math.min(base + padPlayers++, 1);
         padPlayer.put(deviceId, slot);
         return slot;
     }
