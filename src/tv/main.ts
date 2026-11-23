@@ -7,6 +7,8 @@ import { initIdle } from './IdleScreen';
 const w = window as any;
 w.__LR_TV__ = true;
 w.__LR_APP__ = /[?&]app=1\b/.test(location.search);
+// Android wrapper: apply saved remote-sideways preference (BT gamepads are fed natively by the app).
+import('../systems/Settings').then(({ Settings }) => { try { w.LR2099TV?.setRotateRemote?.(Settings.remoteSideways); } catch { /* not in app */ } });
 showSplash();
 
 void import('../main').then(() => boot(w.__GAME__ as import('phaser').Game));

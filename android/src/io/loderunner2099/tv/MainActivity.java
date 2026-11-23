@@ -7,7 +7,9 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.InputDevice;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -115,10 +117,99 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String version() { return MainActivity.this.version(); }
         @JavascriptInterface public String serverUrl() { return homeUrl; }
         @JavascriptInterface public void exit() { handler.post(new Runnable() { @Override public void run() { finish(); } }); }
+        @JavascriptInterface public void setRotateRemote(boolean on) { rotateRemote = on; }
+        @JavascriptInterface public boolean gamepadSeen() { return !padPlayer.isEmpty(); }
+    }
+
+    // ---- Bluetooth gamepad support -------------------------------------------------------
+    // WebView's Gamepad API is unreliable on Android TV, so we capture the controller natively
+    // and feed action bits into the page (window.__INPUT__.remote.feedMessage). Any BT controller
+    // Android pairs (Xbox/PS/8BitDo/generic) works. Player 0 = first controller, player 1 = second.
+    private final java.util.Map<Integer, Integer> padPlayer = new java.util.HashMap<>(); // deviceId -> player
+    private int padPlayers = 0;
+    private boolean rotateRemote = false; // Onn remote held sideways: D-pad rotated 90°
+    private long lastStickSent = 0;
+    private final boolean[] stickState = new boolean[4]; // L R U D latched state
+
+    private int playerFor(int deviceId) {
+        Integer p = padPlayer.get(deviceId);
+        if (p != null) return p;
+        int slot = Math.min(padPlayers++, 1);
+        padPlayer.put(deviceId, slot);
+        return slot;
+    }
+
+    private boolean isGamepad(int deviceId) {
+        InputDevice d = InputDevice.getDevice(deviceId);
+        if (d == null) return false;
+        int s = d.getSources();
+        return (s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+            || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+    }
+
+    private void sendPad(int player, String action, boolean down) {
+        String js = "(function(){try{var i=window.__INPUT__;if(i)i.remote.feedMessage({p:" + player
+            + ",action:'" + action + "',down:" + down + "});}catch(e){}})()";
+        web.evaluateJavascript(js, null);
+    }
+
+    // Analog sticks + triggers arrive as MotionEvent (not KeyEvent).
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent e) {
+        if (!isGamepad(e.getDeviceId())) return super.dispatchGenericMotionEvent(e);
+        int player = playerFor(e.getDeviceId());
+        float lx = e.getAxisValue(MotionEvent.AXIS_X);
+        float ly = e.getAxisValue(MotionEvent.AXIS_Y);
+        float rx = e.getAxisValue(MotionEvent.AXIS_Z);   // right stick on most pads
+        float ry = e.getAxisValue(MotionEvent.AXIS_RZ);
+        float lt = e.getAxisValue(MotionEvent.AXIS_LTRIGGER);
+        float rt = e.getAxisValue(MotionEvent.AXIS_RTRIGGER);
+        float dz = 0.5f;
+        boolean[] now = { lx < -dz || rx < -dz, lx > dz || rx > dz, ly < -dz || ry < -dz, ly > dz || ry > dz };
+        String[] names = { "left", "right", "up", "down" };
+        for (int i = 0; i < 4; i++) {
+            if (now[i] != stickState[i]) { stickState[i] = now[i]; sendPad(player, names[i], now[i]); }
+        }
+        // Triggers as dig buttons (edge-triggered on threshold).
+        digAxis(player, 0, lt > 0.5f);
+        digAxis(player, 1, rt > 0.5f);
+        return true;
+    }
+
+    private final boolean[] trigState = new boolean[2];
+    private void digAxis(int player, int idx, boolean on) {
+        if (on != trigState[idx]) { trigState[idx] = on; sendPad(player, idx == 0 ? "digLeft" : "digRight", on); }
+    }
+
+    // Gamepad buttons arrive as KeyEvent with gamepad source.
+    private boolean handleGamepadKey(KeyEvent e) {
+        if (!isGamepad(e.getDeviceId())) return false;
+        int player = playerFor(e.getDeviceId());
+        boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        if (e.getRepeatCount() > 0) return true; // ignore auto-repeat
+        String action = null;
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:  action = "left"; break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: action = "right"; break;
+            case KeyEvent.KEYCODE_DPAD_UP:    action = "up"; break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:  action = "down"; break;
+            case KeyEvent.KEYCODE_BUTTON_A:   action = "confirm"; break;
+            case KeyEvent.KEYCODE_BUTTON_B:   action = "back"; break;
+            case KeyEvent.KEYCODE_BUTTON_X:   action = "digLeft"; break;
+            case KeyEvent.KEYCODE_BUTTON_Y:   action = "digRight"; break;
+            case KeyEvent.KEYCODE_BUTTON_L1:  action = "digLeft"; break;
+            case KeyEvent.KEYCODE_BUTTON_R1:  action = "digRight"; break;
+            case KeyEvent.KEYCODE_BUTTON_START: action = "pause"; break;
+            case KeyEvent.KEYCODE_BUTTON_SELECT: action = "back"; break;
+            default: return true; // consume other gamepad buttons
+        }
+        if (action != null) sendPad(player, action, down);
+        return true;
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        if (isGamepad(e.getDeviceId())) return handleGamepadKey(e);
         int code = e.getKeyCode();
         if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_SETTINGS) {
             if (e.getAction() == KeyEvent.ACTION_UP) showUrlDialog();
@@ -128,8 +219,23 @@ public class MainActivity extends Activity {
             if (e.getAction() == KeyEvent.ACTION_UP) onBackKey();
             return true;
         }
+        if (rotateRemote) {
+            int rotated = rotateDpad(code);
+            if (rotated != code) { e = new KeyEvent(e.getDownTime(), e.getEventTime(), e.getAction(), rotated, e.getRepeatCount(), e.getMetaState(), e.getDeviceId(), e.getScanCode(), e.getFlags(), e.getSource()); code = rotated; }
+        }
         if (!web.hasFocus()) web.requestFocus();
         return super.dispatchKeyEvent(e); // D-pad, OK (Enter), media keys → page keydown/keyup
+    }
+
+    private static int rotateDpad(int code) {
+        // Remote held sideways (90° CCW): physical up = left, right = up, down = right, left = down.
+        switch (code) {
+            case KeyEvent.KEYCODE_DPAD_UP: return KeyEvent.KEYCODE_DPAD_LEFT;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return KeyEvent.KEYCODE_DPAD_UP;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return KeyEvent.KEYCODE_DPAD_RIGHT;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return KeyEvent.KEYCODE_DPAD_DOWN;
+            default: return code;
+        }
     }
 
     private void onBackKey() {
