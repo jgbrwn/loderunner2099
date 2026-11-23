@@ -116,7 +116,26 @@ export function moveGraph(w: World, x: number, y: number, withDig = false): [Dir
   return out;
 }
 
-function bfs(w: World, sx: number, sy: number, goal: (x: number, y: number) => boolean): { dir: Dir; dist: number } | null {
+// BFS is the most expensive part of the sim (whole-level flood fill). Cache results per (tick, start cell):
+// within one tick the map only changes via digs (which the sim applies before guards move next tick), so this
+// is safe and turns O(guards × cells) into at most one flood fill per guard start cell per tick.
+type BfsRes = { dir: Dir; dist: number } | null;
+let cacheW: World | null = null, cacheTick = -1;
+const cache = new Map<number, Map<(x: number, y: number) => boolean, BfsRes>>();
+
+function bfs(w: World, sx: number, sy: number, goal: (x: number, y: number) => boolean): BfsRes {
+  if (w !== cacheW || w.tickCount !== cacheTick) { cache.clear(); cacheW = w; cacheTick = w.tickCount; }
+  const key = sy * w.width + sx;
+  let byGoal = cache.get(key);
+  if (!byGoal) { byGoal = new Map(); cache.set(key, byGoal); }
+  const hit = byGoal.get(goal);
+  if (hit !== undefined) return hit;
+  const res = bfsUncached(w, sx, sy, goal);
+  byGoal.set(goal, res);
+  return res;
+}
+
+function bfsUncached(w: World, sx: number, sy: number, goal: (x: number, y: number) => boolean): BfsRes {
   if (goal(sx, sy)) return { dir: null, dist: 0 };
   const W = w.width;
   const seen = new Uint8Array(W * w.height);
