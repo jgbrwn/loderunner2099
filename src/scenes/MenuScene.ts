@@ -95,6 +95,7 @@ export class MenuScene extends Phaser.Scene {
     items.push(
       { label: 'OPTIONS', act: () => this.ui!.push(this.optionsPage()) },
       { label: 'HIGH SCORES', act: () => this.ui!.push(this.scoresPage()) },
+      { label: 'PLAY ON TV', visible: () => !tv, act: () => this.ui!.push(this.tvPage()) },
       { label: 'INSTALL APP', visible: () => !tv && (canInstall() || iosInstallHint()), act: () => this.install() },
       { label: () => (isFullscreen() ? 'EXIT FULLSCREEN' : 'FULLSCREEN'), visible: () => !(window as any).__LR_APP__ && fullscreenSupported(),
         act: () => { void toggleFullscreen(); } },
@@ -153,8 +154,8 @@ export class MenuScene extends Phaser.Scene {
     return {
       title: 'OPTIONS',
       items: [
-        { label: 'MUSIC', value: () => ({ procedural: 'SYNTH', radio: 'RADIO', off: 'OFF' } as any)[sm.getMusicMode()],
-          cycle: d => sm.setMusicMode(cyc(['procedural', 'radio', 'off'] as const as any[], sm.getMusicMode(), d)) },
+        { label: 'MUSIC', value: () => ({ procedural: 'SYNTH', radio: 'RADIO PARADISE', soma: 'SOMA SPACE STATION', off: 'OFF' } as any)[sm.getMusicMode()],
+          cycle: d => sm.setMusicMode(cyc(['procedural', 'radio', 'soma', 'off'] as const as any[], sm.getMusicMode(), d)) },
         { label: 'SOUND FX', value: () => (sm.isEnabled() ? 'ON' : 'OFF'), cycle: () => { sm.toggle(); } },
         { label: 'THEME', value: () => THEMES[Settings.theme].name?.toUpperCase?.() ?? Settings.theme.toUpperCase(),
           cycle: d => { Settings.theme = cyc(themes, Settings.theme, d); } },
@@ -183,6 +184,24 @@ export class MenuScene extends Phaser.Scene {
       body: `<table>${rows.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`).join('')}</table>`,
       items: [{ label: 'BACK', act: () => this.ui!.back(), cls: 'dim' }],
     };
+  }
+
+  private tvPage(): Page {
+    const o = location.origin, tvUrl = `${o}/tv`, apk = `${o}/app`;
+    const copy = (u: string) => () => {
+      const ok = () => this.ui?.toast('COPIED');
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(u).then(ok, () => this.ui?.toast(u, 6000));
+      else this.ui?.toast(u, 6000);
+    };
+    const body = `<b>Smart TV browser:</b> open <code>${tvUrl}</code><br><br>`
+      + `<b>Android / Google TV</b> (e.g. Onn 4K): download the app from <code>${apk}</code> `
+      + `(sideload with the Downloader app, or a USB stick).<br><br>`
+      + `Then scan the QR code on the TV with this phone to use it as a controller.`;
+    return { title: 'PLAY ON TV', body, items: [
+      { label: 'COPY TV LINK', act: copy(tvUrl) },
+      { label: 'COPY APP LINK', act: copy(apk) },
+      { label: 'BACK', act: () => this.ui!.back(), cls: 'dim' },
+    ] };
   }
 
   private scoresPage(): Page {

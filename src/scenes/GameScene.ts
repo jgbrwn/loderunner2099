@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { toggleFullscreen, fullscreenSupported, isFullscreen } from '../platform/fullscreen';
 import { CONFIG, DIFFICULTIES, THEMES, Theme } from '../config';
 import { TileMap } from '../level/TileMap';
 import { LevelGenerator } from '../level/LevelGenerator';
@@ -31,7 +32,7 @@ interface Board {
 
 type MenuItem = { label: () => string; act?: () => void; adj?: (d: number) => void };
 
-const MUSIC_MODES: MusicMode[] = ['procedural', 'radio', 'off'];
+const MUSIC_MODES: MusicMode[] = ['procedural', 'radio', 'soma', 'off'];
 
 /** Renders the deterministic sim (src/sim) and handles session flow (lives, levels, pause menu, versus rounds). */
 export class GameScene extends Phaser.Scene {
@@ -216,7 +217,7 @@ export class GameScene extends Phaser.Scene {
     const JD = Phaser.Input.Keyboard.JustDown;
     const k = this.keys;
     if (this.gameOver) {
-      if (input.anyJustPressed('confirm') || JD(k.restart)) this.restartGame();
+      if (input.anyJustPressed('confirm') || input.anyJustPressed('digLeft') || input.anyJustPressed('digRight') || JD(k.restart)) this.restartGame();
       else if (input.anyJustPressed('back')) this.returnToMenu();
       return;
     }
@@ -272,9 +273,10 @@ export class GameScene extends Phaser.Scene {
       { label: () => 'RESUME', act: () => this.closeMenu() },
       { label: () => 'RESTART LEVEL', act: () => { this.closeMenu(); if (!this.transitioning) this.restartLevel(); } },
       { label: () => 'OPTIONS', act: () => this.setMenuPage('options') },
+      ...(fullscreenSupported() ? [{ label: () => `FULLSCREEN  ◀ ${isFullscreen() ? 'ON' : 'OFF'} ▶`, act: () => { void toggleFullscreen().then(() => this.renderMenu()); }, adj: () => { void toggleFullscreen().then(() => this.renderMenu()); } }] : []),
       { label: () => 'QUIT TO MENU', act: () => this.returnToMenu() },
     ] : [
-      { label: () => `MUSIC  ◀ ${sm.getMusicMode().toUpperCase()} ▶`, act: fx(() => this.cycleMusic(1)), adj: fx(d => this.cycleMusic(d)) },
+      { label: () => `MUSIC  ◀ ${({ procedural: 'SYNTH', radio: 'RADIO PARADISE', soma: 'SOMA FM', off: 'OFF' } as Record<string, string>)[sm.getMusicMode()]} ▶`, act: fx(() => this.cycleMusic(1)), adj: fx(d => this.cycleMusic(d)) },
       { label: () => `SOUND  ◀ ${sm.isEnabled() ? 'ON' : 'OFF'} ▶`, act: fx(() => sm.toggle()), adj: fx(() => sm.toggle()) },
       { label: () => `CRT  ◀ ${this.crtOn() ? 'ON' : 'OFF'} ▶`, act: fx(() => this.toggleCRT()), adj: fx(() => this.toggleCRT()) },
       { label: () => `THEME  ◀ ${this.theme.name.toUpperCase()} ▶`, act: () => this.cycleTheme(1), adj: d => this.cycleTheme(d) },
@@ -337,6 +339,7 @@ export class GameScene extends Phaser.Scene {
     for (const b of this.boards) { b.view.setTheme(this.theme); b.hud?.setTheme(this.theme); }
     if (this.mode === 'versus') this.buildVersusHud();
     this.crtEffect.applyTheme(this.theme);
+    if (!Settings.crt) this.crtEffect.setEnabled(false);
     getSoundManager().playMenuSelect();
   }
 

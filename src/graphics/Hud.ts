@@ -8,7 +8,7 @@ export interface HudData {
   score: number; lives: number; level: number;
   goldTotal: number; goldLeft: number;
   difficulty: string; seed: string;
-  music: 'procedural' | 'radio' | 'off';
+  music: 'procedural' | 'radio' | 'soma' | 'off';
   label?: string;          // e.g. 'P1' in split-screen
   livesIcon?: 'life_p1' | 'life_p2';
   score2?: number;         // co-op: second player's score (shown as P2)
@@ -87,7 +87,7 @@ export class Hud {
     t.gold.setPosition(x + total * 10 + 6, cy).setText(d.goldLeft > 0 ? String(d.goldLeft) : 'EXIT!');
     t.diff.setText(d.status ?? d.difficulty);
     t.seed.setText('SEED ' + d.seed);
-    icon(d.music === 'radio' ? 'icon_radio' : d.music === 'off' ? 'icon_off' : 'icon_note', 924, cy);
+    icon(d.music === 'radio' || d.music === 'soma' ? 'icon_radio' : d.music === 'off' ? 'icon_off' : 'icon_note', 924, cy);
   }
 
   destroy(): void { this.root.destroy(); }

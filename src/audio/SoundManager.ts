@@ -3,7 +3,7 @@ import { composeSong, composeMenu, StingerKind } from './Composer';
 import { MusicEngine } from './MusicEngine';
 import { RadioPlayer, NowPlaying } from './Radio';
 
-export type MusicMode = 'procedural' | 'radio' | 'off';
+export type MusicMode = 'procedural' | 'radio' | 'soma' | 'off';
 const MODE_KEY = 'lr2099.musicMode';
 type MusicRequest = { kind: 'level'; seed: string; level: number; difficulty: string } | { kind: 'menu' };
 
@@ -32,7 +32,7 @@ export class SoundManager {
   constructor() {
     try {
       const m = localStorage.getItem(MODE_KEY);
-      if (m === 'procedural' || m === 'radio' || m === 'off') this.mode = m;
+      if (m === 'procedural' || m === 'radio' || m === 'soma' || m === 'off') this.mode = m;
       if (this.mode !== 'off') this.lastNonOff = this.mode;
     } catch { /* no storage */ }
     this.initAudio();
@@ -71,7 +71,7 @@ export class SoundManager {
     if (this.ctx?.state === 'suspended') {
       try { await this.ctx.resume(); } catch { /* ignore */ }
     }
-    if (this.mode === 'radio' && this.enabled) this.radio.tryPlay();
+    if ((this.mode === 'radio' || this.mode === 'soma') && this.enabled) this.radio.tryPlay();
   }
 
   setVolume(vol: number): void {
@@ -113,7 +113,7 @@ export class SoundManager {
     this.applyMusic(true);
   }
 
-  nowPlaying(): NowPlaying | null { return this.mode === 'radio' ? this.radio.nowPlaying() : null; }
+  nowPlaying(): NowPlaying | null { return this.mode === 'radio' || this.mode === 'soma' ? this.radio.nowPlaying() : null; }
 
   startLevelMusic(seed: string, level: number, difficulty: string): void {
     this.setRequest({ kind: 'level', seed, level, difficulty });
@@ -173,9 +173,9 @@ export class SoundManager {
   /** Bring playback in line with mode / enabled / request. */
   private applyMusic(restart: boolean): void {
     if (!this.enabled || this.mode === 'off') { this.killEngine(); this.radio.stop(); return; }
-    if (this.mode === 'radio') {
+    if (this.mode === 'radio' || this.mode === 'soma') {
       this.killEngine();
-      void this.radio.start(this.radioVolume());
+      void this.radio.start(this.radioVolume(), this.mode === 'soma' ? 'soma' : 'rp');
       return;
     }
     this.radio.stop();

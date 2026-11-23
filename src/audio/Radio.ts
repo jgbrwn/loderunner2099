@@ -1,5 +1,7 @@
 export interface NowPlaying { title: string; artist: string; coverUrl: string }
 
+const SOMA_STREAM = 'https://ice2.somafm.com/spacestation-128-aac';
+export type Station = 'rp' | 'soma';
 const FALLBACK_STREAM = 'https://stream.radioparadise.com/aac-128';
 const POLL_MS = 20000;
 
@@ -11,20 +13,25 @@ export class RadioPlayer {
   private streamUrl: string | null = null;
   private active = false;
 
-  async start(volume: number): Promise<void> {
-    if (this.active) { this.setVolume(volume); this.tryPlay(); return; }
+  private station: Station = 'rp';
+
+  async start(volume: number, station: Station = 'rp'): Promise<void> {
+    if (this.active && this.station === station) { this.setVolume(volume); this.tryPlay(); return; }
+    if (this.active) this.stop();
+    this.station = station;
     this.active = true;
     if (!this.audio) {
       this.audio = new Audio();
       this.audio.preload = 'none';
     }
     this.setVolume(volume);
-    await this.poll();
+    if (station === 'soma') this.info = { title: 'Space Station Soma', artist: 'SomaFM', coverUrl: '' };
+    else await this.poll();
     if (!this.active) return;
-    const url = this.streamUrl || FALLBACK_STREAM;
+    const url = station === 'soma' ? SOMA_STREAM : (this.streamUrl || FALLBACK_STREAM);
     if (this.audio.src !== url) this.audio.src = url;
     this.tryPlay();
-    if (this.timer === null) this.timer = setInterval(() => { void this.poll(); }, POLL_MS);
+    if (station === 'rp' && this.timer === null) this.timer = setInterval(() => { void this.poll(); }, POLL_MS);
   }
 
   /** Call from a user gesture if autoplay was blocked. */

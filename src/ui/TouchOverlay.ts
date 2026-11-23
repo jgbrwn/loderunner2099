@@ -1,3 +1,4 @@
+import { toggleFullscreen, fullscreenSupported } from '../platform/fullscreen';
 // DOM touch controls that live OUTSIDE the playfield. Landscape: D-pad in the left gutter, dig buttons in the
 // right gutter (the Phaser canvas is fitted into the space between). Portrait: game on top, controller below.
 // Only active on touch devices (or with ?touch=1). Options (size/opacity/left-handed) persist in localStorage.
@@ -50,13 +51,16 @@ export class TouchOverlay {
     this.root.id = 'touch-ui';
     this.root.innerHTML = `<div class="dpad">${DPAD_SVG}</div>
       <div class="tbtn dig" data-a="digLeft">◀DIG</div><div class="tbtn dig" data-a="digRight">DIG▶</div>
-      <div class="tbtn sm" data-a="pause" aria-label="Pause">❚❚</div><div class="tbtn sm" data-a="back" aria-label="Menu">✕</div>
+      <div class="tbtn sm" data-a="pause" aria-label="Pause">❚❚</div><div class="tbtn sm fs" aria-label="Fullscreen">⛶</div>
       <div class="tbtn sm opt" aria-label="Touch options">⚙</div>`;
     document.body.appendChild(this.root);
     for (const el of Array.from(this.root.children) as HTMLElement[]) {
       const a = el.dataset.a as Action | undefined;
       if (a) { this.els[a] = el; makeButton(el, d => this.set(a, d), a === 'pause' || a === 'back' ? 20 : 12); }
     }
+    this.els.back = this.root.querySelector('.fs')!;
+    this.els.back.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); void toggleFullscreen(); });
+    if (!fullscreenSupported()) this.els.back.style.visibility = 'hidden';
     this.els.dpad = this.root.querySelector('.dpad')!;
     this.els.opt = this.root.querySelector('.opt')!;
     this.els.opt.addEventListener('click', () => this.openOptions());

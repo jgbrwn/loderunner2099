@@ -86,7 +86,7 @@ export function initIdle(game: Phaser.Game): { dismiss(): boolean; show(): void 
     requestAnimationFrame(() => el?.classList.add('on'));
     document.body.classList.add('lr-idle-on');
     const sm = getSoundManager();
-    if (Settings.idleRadio && sm.getMusicMode() !== 'radio') { prevMode = sm.getMusicMode(); sm.setMusicMode('radio'); }
+    if (Settings.idleRadio && sm.getMusicMode() !== 'radio' && sm.getMusicMode() !== 'soma') { prevMode = sm.getMusicMode(); sm.setMusicMode('radio'); }
     game.loop.sleep();
     clock(); np();
     relayT = window.setInterval(() => { layout = (layout + 1) % 3; if (el) el.className = `on l${layout}`; }, 180_000);
@@ -122,7 +122,7 @@ export function initIdle(game: Phaser.Game): { dismiss(): boolean; show(): void 
   async function np(): Promise<void> {
     const sm = getSoundManager();
     let n: Now | null = sm.nowPlaying();
-    if (!n && sm.getMusicMode() === 'radio') {
+    if (!n && (sm.getMusicMode() === 'radio' || sm.getMusicMode() === 'soma')) {
       try { n = await (await fetch('/api/radio/now')).json(); } catch { n = null; }
     }
     const box = el?.querySelector('.np') as HTMLElement | null;
