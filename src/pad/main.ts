@@ -203,6 +203,23 @@ sndBtn.addEventListener('click', () => {
 });
 $('leave').before(sndBtn);
 
+// D-pad size (phone preference; smaller = more thumb travel headroom, larger = easier to hit).
+const sizes = [0.6, 0.8, 1, 1.2];
+let dscale = Number(ls('lr2099.dpadScale')) || 1;
+const sizeBtn = document.createElement('button');
+sizeBtn.className = 'leave';
+const sizeLabel = () => {
+  sizeBtn.textContent = `D-PAD SIZE: ${Math.round(dscale * 100)}%`;
+  document.documentElement.style.setProperty('--dpad-scale', String(dscale));
+};
+sizeLabel();
+sizeBtn.addEventListener('click', () => {
+  const i = sizes.findIndex(v => v >= dscale - 0.01);
+  dscale = sizes[(i + 1) % sizes.length];
+  ls('lr2099.dpadScale', String(dscale)); sizeLabel(); vibrate(10);
+});
+sndBtn.after(sizeBtn);
+
 setInterval(() => send({ t: 'in', b: bits }), 1000); // keepalive / resync
 setInterval(() => { pingAt = performance.now(); send({ t: 'ping' }); }, 3000);
 keepAwake(() => active);

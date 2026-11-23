@@ -53,7 +53,7 @@ export class GameScene extends Phaser.Scene {
   private speedIndex: number = CONFIG.DEFAULT_SPEED_INDEX;
   /** Public: the TV idle screen watches this. */
   paused = false;
-  private gameOver = false;
+  public gameOver = false;
   private transitioning = false;
   private lastStepSound = 0;
   private lastIntensity = 0;

@@ -61,7 +61,7 @@ export function initIdle(game: Phaser.Game): { dismiss(): boolean; show(): void 
   addEventListener('pointerdown', onKey, true);
   addEventListener('pointermove', bump, { passive: true });
   addEventListener('wheel', bump, { passive: true });
-  game.events.on('tvpairing', bump);
+  // (pad join/leave reconnects are not user activity — don't reset the idle timer on 'tvpairing')
 
   const tick = () => {
     const im = getInput();
@@ -86,7 +86,8 @@ export function initIdle(game: Phaser.Game): { dismiss(): boolean; show(): void 
     requestAnimationFrame(() => el?.classList.add('on'));
     document.body.classList.add('lr-idle-on');
     const sm = getSoundManager();
-    if (Settings.idleRadio && sm.getMusicMode() !== 'radio' && sm.getMusicMode() !== 'soma') { prevMode = sm.getMusicMode(); sm.setMusicMode('radio'); }
+    const ir = Settings.idleRadio;
+    if (ir !== 'off' && sm.getMusicMode() !== (ir === "rp" ? "radio" : "soma")) { prevMode = sm.getMusicMode(); sm.setMusicMode(ir === "rp" ? "radio" : "soma"); }
     game.loop.sleep();
     clock(); np();
     relayT = window.setInterval(() => { layout = (layout + 1) % 3; if (el) el.className = `on l${layout}`; }, 180_000);

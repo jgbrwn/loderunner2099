@@ -25,8 +25,8 @@ export const Settings = {
   get idleMinutes(): number { const v = get('idleMin'); return v === null ? 5 : Math.max(0, Number(v) || 0); },
   set idleMinutes(v: number) { set('idleMin', String(v)); },
   /** switch music to Radio Paradise while the idle screen shows */
-  get idleRadio(): boolean { return get('idleRadio') === '1'; },
-  set idleRadio(v: boolean) { set('idleRadio', v ? '1' : '0'); },
+  get idleRadio(): 'off' | 'rp' | 'soma' { const v = get('idleRadio'); return v === '1' || v === 'rp' ? 'rp' : v === 'soma' ? 'soma' : 'off'; },
+  set idleRadio(v: 'off' | 'rp' | 'soma') { set('idleRadio', v); },
   get lastSeed(): string { return get('lastSeed') ?? ''; },
   set lastSeed(v: string) { set('lastSeed', v); },
 };
