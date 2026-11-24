@@ -32,6 +32,8 @@ export type ActorMode = 'idle' | 'run' | 'climb' | 'hang' | 'fall' | 'dig' | 'de
 export interface Actor {
   id: number;
   cx: number; cy: number; ox: number; oy: number;
+  /** position (units) at the start of the last tick — renderers interpolate prev->current */
+  px?: number; py?: number;
   mode: ActorMode;
   facing: -1 | 1;
   acc: number;

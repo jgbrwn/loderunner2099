@@ -62,7 +62,7 @@ export class AttractDemo {
       // stuck (unreachable gold, endless dodging) → next board
       if (w.tickCount - this.lastGoldTick > 60 * 45) this.restartAt = time + 500;
     } else if (w.status !== 'playing' && !this.restartAt) this.restartAt = time + 2500;
-    this.view.render(time);
+    this.view.render(time, this.acc / TICK_MS);
   }
 
   destroy(): void { this.view.destroy(); }

@@ -208,7 +208,7 @@ export class GameScene extends Phaser.Scene {
       }
       if (time - this.lastIntensity > 200) { this.lastIntensity = time; this.updateMusicIntensity(); }
     }
-    for (const b of this.boards) b.view.render(time);
+    for (const b of this.boards) b.view.render(time, b.acc / TICK_MS);
     this.crtEffect.update();
     this.updateHUD();
     this.sendTVState();

@@ -247,8 +247,16 @@ export class FieldView {
   }
 
   // ------------------------------------------------------------------ per-frame
-  private ax(a: Actor): number { return Math.round(a.cx * TS + a.ox * U + TS / 2); }
-  private ay(a: Actor): number { return Math.round(a.cy * TS + a.oy * U + TS / 2); }
+  // Render interpolation: the sim runs at a fixed 60 Hz but frames don't line up with ticks (0, 1 or 2 ticks
+  // per frame, and guards move 1-2 units per tick), which made actors visibly surge and stall. Draw each actor
+  // between its previous and current tick position by the leftover accumulator fraction. Snaps on teleports.
+  private alpha = 1;
+  private lerpU(a: Actor, cur: number, prev: number | undefined): number {
+    if (prev === undefined || Math.abs(cur - prev) > SUB) return cur;
+    return prev + (cur - prev) * this.alpha;
+  }
+  private ax(a: Actor): number { return Math.round((this.lerpU(a, a.cx * SUB + a.ox, a.px) * U + TS / 2) * 2) / 2; }
+  private ay(a: Actor): number { return Math.round((this.lerpU(a, a.cy * SUB + a.oy, a.py) * U + TS / 2) * 2) / 2; }
 
   /** Motion-driven animation counter (frames only advance while the actor moves). */
   private step(id: string, x: number, y: number): number {
@@ -272,7 +280,9 @@ export class FieldView {
     }
   }
 
-  render(time: number): void {
+  /** `alpha` = fraction of a sim tick elapsed since the last tick (accumulator / TICK_MS). */
+  render(time: number, alpha = 1): void {
+    this.alpha = Math.max(0, Math.min(1, alpha));
     const w = this.world;
     if (!w) return;
     this.updateTiles(time);

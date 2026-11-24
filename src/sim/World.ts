@@ -92,6 +92,8 @@ export class World {
   tick(inputs: SimInput[] = []): void {
     if (this.status !== 'playing') return;
     this.tickCount++;
+    for (const a of this.players) { a.px = a.cx * SUB + a.ox; a.py = a.cy * SUB + a.oy; }
+    for (const a of this.guards) { a.px = a.cx * SUB + a.ox; a.py = a.cy * SUB + a.oy; }
     this.players.forEach((p, i) => this.tickPlayer(p, inputs[i] ?? NO_INPUT));
     this.updateCourier();
     for (const g of this.guards) this.tickGuard(g);

@@ -233,7 +233,8 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private namePage(): Page {
-    const inp = textInput({ value: Settings.playerName, max: 12, placeholder: 'PLAYER', filter: /[A-Za-z0-9 _-]/, onEnter: v => { Settings.playerName = v.trim(); this.ui!.render(); } });
+    if (isTV()) return this.tvNamePage();
+    const inp = textInput({ value: Settings.playerName, max: 12, placeholder: 'PLAYER', filter: /[^A-Z0-9 _-]/g, onEnter: v => { Settings.playerName = v.trim(); this.ui!.render(); } });
     inp.addEventListener('input', () => { Settings.playerName = inp.value.trim(); });
     return {
       title: 'PLAYER NAME',
@@ -241,6 +242,28 @@ export class MenuScene extends Phaser.Scene {
       items: [
         { label: 'NAME', input: inp },
         { label: 'DONE', cls: 'accent', act: () => this.ui!.back() },
+      ],
+    };
+  }
+
+  /** TV: arcade-style name entry (◀ ▶ pick a letter, OK adds it). Works with the remote, BT controllers and
+   *  phone pads alike — the Android TV system keyboard can't be driven by a gamepad and its keystrokes don't
+   *  reliably reach the WebView. */
+  private tvNamePage(): Page {
+    const CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ '.split('');
+    let i = 0;
+    const show = (c: string) => (c === ' ' ? 'SPACE' : c);
+    return {
+      title: 'PLAYER NAME',
+      body: 'Used on the high score table on this device.<br>◀ ▶ choose a letter · OK adds it',
+      focus: 1,
+      items: [
+        { label: () => `NAME  ${Settings.playerName || '—'}${Settings.playerName.length < 12 ? '_' : ''}`, act: () => {} },
+        { label: 'LETTER', value: () => show(CH[i]), cycle: d => { i = (i + d + CH.length) % CH.length; },
+          ok: () => { if (Settings.playerName.length < 12) Settings.playerName = Settings.playerName + CH[i]; } },
+        { label: 'DELETE', act: () => { Settings.playerName = Settings.playerName.slice(0, -1); this.ui!.render(); } },
+        { label: 'CLEAR', act: () => { Settings.playerName = ''; this.ui!.render(); } },
+        { label: 'DONE', cls: 'accent', act: () => { Settings.playerName = Settings.playerName.trim(); this.ui!.back(); } },
       ],
     };
   }

@@ -8,6 +8,7 @@ export interface Item {
   value?: () => string;                 // shown as ◀ value ▶ (cycle items)
   act?: () => void;                     // OK / click
   cycle?: (dir: 1 | -1) => void;        // ◀ ▶
+  ok?: () => void;                      // OK on a cycle item (instead of cycling forward)
   visible?: () => boolean;
   input?: HTMLInputElement;             // text field item
   cls?: string;
@@ -225,7 +226,7 @@ export class MenuUI {
     const it = this.vis[top.idx];
     if (it?.cycle && im.anyJustPressed('left')) this.activate(-1);
     else if (it?.cycle && im.anyJustPressed('right')) this.activate(1);
-    if (im.anyJustPressed('confirm')) this.activate(1);
+    if (im.anyJustPressed('confirm')) { if (it?.ok) { getSoundManager().playMenuConfirm(); it.ok(); this.render(); } else this.activate(1); }
     else if (im.anyJustPressed('back')) this.back();
   }
 
