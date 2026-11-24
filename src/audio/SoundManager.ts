@@ -67,6 +67,11 @@ export class SoundManager {
     }
   }
 
+  /** Diagnostic: current AudioContext state + whether a synth engine exists. */
+  audioDebug(): string {
+    return `ctx=${this.ctx?.state ?? 'none'} engine=${this.engine ? 'y' : 'n'} mode=${this.mode} enabled=${this.enabled} req=${this.request ? 'y' : 'n'}`;
+  }
+
   async resume(): Promise<void> {
     if (this.ctx?.state === 'suspended') {
       try { await this.ctx.resume(); } catch { /* ignore */ }
