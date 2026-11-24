@@ -127,6 +127,18 @@ public class MainActivity extends Activity {
             padPlayer.clear(); padPlayers = 0; // re-assign on next input
         }
         @JavascriptInterface public boolean gamepadSeen() { return !padPlayer.isEmpty(); }
+        @JavascriptInterface public String lastKey() { return lastKeyDebug; }
+        @JavascriptInterface public String inputDevices() {
+            StringBuilder sb = new StringBuilder();
+            for (int id : InputDevice.getDeviceIds()) {
+                InputDevice d = InputDevice.getDevice(id);
+                if (d == null) continue;
+                sb.append(id).append(": ").append(d.getName())
+                  .append(" [src=0x").append(Integer.toHexString(d.getSources())).append("] ")
+                  .append(isGamepad(id) ? "GAMEPAD" : "remote/key").append("\n");
+            }
+            return sb.toString();
+        }
     }
 
     // ---- Bluetooth gamepad support -------------------------------------------------------
@@ -135,7 +147,8 @@ public class MainActivity extends Activity {
     // Android pairs (Xbox/PS/8BitDo/generic) works. Player 0 = first controller, player 1 = second.
     private final java.util.Map<Integer, Integer> padPlayer = new java.util.HashMap<>(); // deviceId -> player
     private int padPlayers = 0;
-    private boolean rotateRemote = false; // Onn remote held sideways: D-pad rotated 90°
+    private boolean rotateRemote = false;
+    private String lastKeyDebug = ""; // Onn remote held sideways: D-pad rotated 90°
     private long lastStickSent = 0;
     private final boolean[] stickState = new boolean[4]; // L R U D latched state
 
@@ -155,14 +168,17 @@ public class MainActivity extends Activity {
         InputDevice d = InputDevice.getDevice(deviceId);
         if (d == null) return false;
         int s = d.getSources();
+        String n = d.getName() == null ? "" : d.getName().toLowerCase();
+        // A TV remote (Onn/Google TV) is NOT a gamepad even though it exposes SOURCE_DPAD and a
+        // "controller"-ish name. Exclude it explicitly so it stays on the normal remote/key path.
+        boolean remote = n.contains("remote") || n.contains("onn") || n.contains("google tv")
+            || n.contains("chromecast") || n.contains("android tv") || n.contains("atv");
         if ((s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
-            || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return true;
+            || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) return !remote;
         // Switch-protocol pads (8BitDo Ultimate C BT, Pro Controller) sometimes expose only DPAD/KEYBOARD.
-        String n = d.getName();
-        if (n == null) return false;
-        n = n.toLowerCase();
+        if (remote) return false;
         boolean named = n.contains("8bitdo") || n.contains("pro controller") || n.contains("switch")
-            || n.contains("gamepad") || n.contains("joystick") || n.contains("controller");
+            || n.contains("gamepad") || n.contains("joystick");
         return named && (s & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD;
     }
 
@@ -243,8 +259,10 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        if (isGamepad(e.getDeviceId())) return handleGamepadKey(e);
         int code = e.getKeyCode();
+        InputDevice kd = InputDevice.getDevice(e.getDeviceId());
+        lastKeyDebug = (kd == null ? "?" : kd.getName()) + " code=" + code + " gamepad=" + isGamepad(e.getDeviceId());
+        if (isGamepad(e.getDeviceId())) return handleGamepadKey(e);
         if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_SETTINGS) {
             if (e.getAction() == KeyEvent.ACTION_UP) showUrlDialog();
             return true;
