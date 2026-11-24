@@ -42,7 +42,10 @@ export class MenuScene extends Phaser.Scene {
     const im = getInput();
     if (im.keyboard) im.keyboard.letters = false;
     im.swallow();
-    this.input.once('pointerdown', () => getSoundManager().resume());
+    const resumeAudio = () => getSoundManager().resume();
+    this.input.once('pointerdown', resumeAudio);
+    this.input.keyboard?.on('keydown', resumeAudio);
+    window.addEventListener('keydown', resumeAudio, { once: true });
     getSoundManager().playMenuMusic();
 
     this.demo = new AttractDemo(this);

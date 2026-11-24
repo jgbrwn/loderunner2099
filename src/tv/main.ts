@@ -18,6 +18,14 @@ function boot(game: import('phaser').Game): void {
   tv.onChange = () => game.events.emit('tvpairing', tv);
   game.registry.set('tvPairing', tv);
   w.__TV__ = tv;
+  // Remote (key) input must resume the AudioContext: the TV app has no pointer events, so Web Audio
+  // (synth music + SFX) would otherwise stay suspended/silent even though <audio> radio plays.
+  import('../audio/SoundManager').then(({ getSoundManager }) => {
+    const sm = getSoundManager();
+    const r = () => { void sm.resume(); };
+    window.addEventListener('keydown', r);
+    game.events.on('tvpairing', r);
+  });
   const idle = initIdle(game);
   w.__IDLE__ = idle;
 
