@@ -548,10 +548,12 @@ export class LevelGenerator {
       if (get(x, H - 2) === T.EMPTY && isBrick(x, H - 1)) sx = x;
     }
     if (sx < 0) return null;
-    m.playerStart = { x: sx, y: H - 2 };
+    let sy = H - 2;
+    m.playerStart = { x: sx, y: sy };
 
     // connectivity repair: give every standing area outside the start SCC a ladder down
-    const N = W * H, start = (H - 2) * W + sx;
+    const N = W * H;
+    let start = (H - 2) * W + sx;
     let g!: MoveGraph, comp!: Int32Array, reach!: Uint8Array;
     for (let iter = 0; ; iter++) {
       g = new MoveGraph(m, false);
@@ -587,6 +589,30 @@ export class LevelGenerator {
     }
     const main = comp[start];
 
+    // PLAYER START HEIGHT (originals: ~half start on the bottom floor, the rest anywhere up the screen,
+    // fairly evenly spread). The repair pass anchors on the ground; we then move the start to any standing
+    // cell in the same strongly-connected component, so every place reachable from the ground start (and
+    // back) stays reachable. Needs a standable neighbour on the same row for a second player.
+    if (rng.chance(0.55)) {
+      const opts: P[] = [];
+      const standOk = (x: number, y: number) => x >= 0 && x < W && comp[y * W + x] === main && get(x, y) === T.EMPTY
+        && (isBrick(x, y + 1) || get(x, y + 1) === T.LADDER) && !sealed.has(y * W + x);
+      for (let y = 2; y < H - 2; y++) for (let x = 1; x < W - 1; x++) {
+        if (!standOk(x, y) || !(standOk(x - 1, y) || standOk(x + 1, y))) continue;
+        if (get(x, y + 1) === T.BRICK_TRAP || assisted.some(q => Math.abs(q.x - x) <= 1 && Math.abs(q.y - y) <= 1)) continue;
+        if (pitCells.some(q => q.x === x && Math.abs(q.y - y) <= 1)) continue;
+        opts.push({ x, y });
+      }
+      if (opts.length) {
+        // pick a row first (even spread over heights like the originals), then a cell on it
+        const rows = [...new Set(opts.map(o => o.y))];
+        const ry = rng.pick(rows), c = rng.pick(opts.filter(o => o.y === ry));
+        sx = c.x; sy = c.y; m.playerStart = { x: sx, y: sy };
+        start = sy * W + sx;
+        reach = g.bfs([start]);
+      }
+    }
+
     // exit column above the top floor
     const exits: number[] = [];
     for (let x = 2; x < W - 2; x++) {
@@ -608,7 +634,7 @@ export class LevelGenerator {
     for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
       if (comp[i] !== main || get(x, y) !== T.EMPTY || !(isBrick(x, y + 1) || get(x, y + 1) === T.LADDER) || x === ex) continue;
-      if (Math.abs(x - sx) + Math.abs(y - (H - 2)) < 3) continue;
+      if (Math.abs(x - sx) + Math.abs(y - sy) < 3) continue;
       (noDig[i] ? cand : digCand).push({ x, y });
     }
     const d = this.difficulty;
@@ -693,7 +719,7 @@ export class LevelGenerator {
     for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
       if (i >= N || comp[i] !== main || !reach[i] || get(x, y) !== T.EMPTY || !g.stable(x, y) || x === ex || sealed.has(i)) continue;
-      if (Math.abs(x - sx) + Math.abs(y - (H - 2)) < 10) continue;
+      if (Math.abs(x - sx) + Math.abs(y - sy) < 10) continue;
       ecand.push({ x, y });
     }
     while (m.enemyStarts.length < nEnemies && ecand.length) {
