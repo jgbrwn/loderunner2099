@@ -135,10 +135,10 @@ export class LevelGenerator {
     }
 
     // floors: layout archetype chosen per seed (difficulty-weighted), produced as brick segments
-    const minTop = p.assisted ? 6 : 4;
+    const minTop = p.assisted ? 6 : rng.pick([3, 3, 4]);
     type Seg = { y: number; x0: number; x1: number };
     const segs: Seg[] = [];
-    const sp = () => rng.pick(p.c > 0.7 ? [2, 3, 3, 3, 4] : [3, 3, 3, 4, 4]);
+    const sp = () => rng.pick(p.c > 0.7 ? [2, 2, 3, 3, 3] : [2, 3, 3, 3, 4]);
     const stack = (yStart: number, f: (y: number, i: number) => void) => {
       for (let y = yStart, i = 0; ; i++) {
         let next = y - sp();
@@ -220,30 +220,81 @@ export class LevelGenerator {
     const floors = rowsUsed;
     const top = floors.length ? floors[floors.length - 1] : H - 1;
 
-    // ladders: from segments down to support (flush with the segment); repair pass adds more
+    // ladders: from segments down to support (flush with the segment); repair pass adds more.
+    // Original-style variety: ladders on the edge columns, ladders that run THROUGH a floor and on down to the
+    // next one (one long ladder serving several floors), the odd side-by-side double ladder.
     const ladderCols: number[] = [];
-    const placeLadder = (x: number, y0: number) => {
+    const placeLadder = (x: number, y0: number, through = 0) => {
       set(x, y0, T.LADDER);
-      for (let y = y0 + 1; y < H && !isBrick(x, y) && get(x, y) !== T.BRICK_TRAP; y++) set(x, y, T.LADDER);
+      for (let y = y0 + 1; y < H; y++) {
+        const t = get(x, y);
+        if (t === T.BRICK_TRAP) break;
+        if (isBrick(x, y)) {
+          // pass through a plain-brick floor (not the ground) with standing room below it
+          if (through > 0 && t === T.BRICK && y < H - 2 && get(x, y + 1) === T.EMPTY && get(x, y - 1) === T.LADDER) { through--; set(x, y, T.LADDER); continue; }
+          break;
+        }
+        set(x, y, T.LADDER);
+      }
       ladderCols.push(x);
+    };
+    // a ladder that stops 1-2 cells short of the floor below (originals: ~25% of ladders end over air) is a
+    // one-way way down: climb down, let go. Applied to long ladders only; the solver/repair pass keep it fair.
+    const shortenLadder = (x: number, y0: number) => {
+      let yb = y0;
+      while (yb + 1 < H && get(x, yb + 1) === T.LADDER) yb++;
+      const cut = rng.range(1, 3);
+      if (yb - y0 + 1 - cut < 3 || yb >= H - 1) return;
+      for (let y = yb - cut + 1; y <= yb; y++) set(x, y, T.EMPTY);
     };
     for (const tc of towerCols) placeLadder(tc, top);
     const levels = [H - 1, ...floors];
     const segOrder = rng.shuffle(segs.slice());
     for (const s of segOrder) {
       const wide = s.x1 - s.x0 + 1;
-      let k = (rng.chance(0.55 + p.ld * 0.4) ? 1 : 0) + (wide >= 14 && rng.chance(p.ld * 0.7) ? 1 : 0);
-      for (let tries = 0; tries < 12 && k > 0; tries++) {
-        const x = rng.range(Math.max(1, s.x0), Math.min(W - 1, s.x1 + 1));
+      let k = (rng.chance(0.65 + p.ld * 0.35) ? 1 : 0) + (wide >= 10 && rng.chance(0.25 + p.ld * 0.5) ? 1 : 0) + (wide >= 18 && rng.chance(0.35) ? 1 : 0);
+      for (let tries = 0; tries < 14 && k > 0; tries++) {
+        const x = rng.range(Math.max(0, s.x0), Math.min(W, s.x1 + 1));
         if (get(x, s.y - 1) !== T.EMPTY || get(x, s.y) !== T.BRICK) continue;
         let near = false;
         for (let y = s.y - 1; y < Math.min(H, s.y + 4); y++) for (let dx = -2; dx <= 2; dx++) if (get(x + dx, y) === T.LADDER) near = true;
         if (near) continue;
-        placeLadder(x, s.y); k--;
+        placeLadder(x, s.y, rng.chance(0.35) ? rng.range(1, 3) : 0); k--;
+        if (rng.chance(0.12 + 0.1 * p.c)) shortenLadder(x, s.y);
+        // double ladder (side by side), occasionally
+        const x2 = x + (rng.chance(0.5) ? 1 : -1);
+        if (rng.chance(0.08) && x2 >= s.x0 && x2 <= s.x1 && get(x2, s.y - 1) === T.EMPTY && get(x2, s.y) === T.BRICK) placeLadder(x2, s.y);
       }
     }
 
-    // poles across same-row gaps between segments (at standing height)
+    // THICK FLOORS (original levels are much denser: ~35% of solid cells sit on another solid cell, ours were 8%):
+    // some floor segments get a second brick layer where there is still standing room below.
+    for (const sg of segs) {
+      if (sg.y >= H - 2 || !rng.chance(0.25 + 0.25 * p.c)) continue;
+      for (let x = sg.x0; x <= sg.x1; x++) {
+        if (get(x, sg.y) === T.BRICK && get(x, sg.y + 1) === T.EMPTY && get(x, sg.y + 2) === T.EMPTY && sg.y + 2 < H - 1) set(x, sg.y + 1, T.BRICK);
+      }
+    }
+    // BRICK WALLS between two floors split a band into rooms (classic; the repair pass links rooms with ladders)
+    for (let k = (rng.chance(0.3 + 0.3 * p.c) ? 1 : 0) + (rng.chance(0.25 * p.c) ? 1 : 0); k > 0; k--) {
+      for (let tries = 0; tries < 20; tries++) {
+        const x = rng.range(2, W - 2), f = rng.pick(floors.length ? floors : [H - 1]);
+        if (!isBrick(x, f) || get(x, f - 1) === T.LADDER) continue;
+        let yb = f + 1;
+        while (yb < H && get(x, yb) === T.EMPTY) yb++;
+        if (yb - f - 1 < 2 || yb - f - 1 > 4 || !isBrick(x, yb)) continue;
+        let ok = true;
+        for (let y = f + 1; y < yb && ok; y++) for (const dx of [-1, 1]) if (get(x + dx, y) === T.LADDER || get(x + dx, y) === T.POLE) ok = false;
+        if (!ok) continue;
+        for (let y = f + 1; y < yb; y++) set(x, y, T.BRICK);
+        break;
+      }
+    }
+
+    // POLES. Originals average ~17 pole cells in ~5 runs (ours had ~3 in 1). Original roles, all used here:
+    // bridges across floor gaps, rails hung directly under a floor ceiling off a ladder, ladder-to-ladder
+    // traverses over open space, ladder spurs that rise above a floor into a rail, free ends you drop off
+    // (often onto / through gold below).
     const gapsByFloor = new Map<number, [number, number][]>();
     for (const y of rowsUsed) {
       const row = segs.filter(s => s.y === y).sort((a, b) => a.x0 - b.x0);
@@ -251,35 +302,74 @@ export class LevelGenerator {
       for (let i = 1; i < row.length; i++) if (row[i].x0 - row[i - 1].x1 - 1 <= 7) gaps.push([row[i - 1].x1 + 1, row[i].x0 - 1]);
       gapsByFloor.set(y, gaps);
     }
-
-    const poleIslandCells: P[] = [];   // gold sitting on a pole over open air (hang to collect)
     const escapeCells: P[] = [];       // gold in a drop-in / dig-out floor pit
     const pitCells: P[] = [];
-    // poles across gaps (at standing height)
+    const rail = (x0: number, y: number, dir: number, maxLen: number, needCeil: boolean): number => {
+      let n = 0;
+      for (let x = x0; n < maxLen && x >= 0 && x < W; x += dir, n++) {
+        if (get(x, y) !== T.EMPTY || get(x, y + 1) !== T.EMPTY || get(x, y - 1) === T.LADDER) break;
+        if (needCeil && n < 2 && !isBrick(x, y - 1)) break;
+      }
+      if (n < 3) return 0;
+      for (let k = 0, x = x0; k < n; k++, x += dir) set(x, y, T.POLE);
+      return n;
+    };
+    // bridges across gaps (at standing height)
     for (const [fy, gaps] of gapsByFloor) for (const [a, b] of gaps) {
-      if (b - a >= 1 && rng.chance(0.4)) {
+      if (b - a >= 1 && rng.chance(0.5)) {
         let ok = true;
         for (let x = a; x <= b; x++) if (get(x, fy - 1) !== T.EMPTY) ok = false;
         if (ok) for (let x = a; x <= b; x++) set(x, fy - 1, T.POLE);
       }
     }
-    // hanging poles off ladders
-    for (let k = rng.range(0, 2 + Math.round(p.c * 2)); k > 0; k--) {
-      const lx = rng.pick(ladderCols.length ? ladderCols : [0]);
-      const r = rng.range(top + 1, H - 2);
-      if (get(lx, r) !== T.LADDER) continue;
-      const dir = rng.chance(0.5) ? 1 : -1, len = rng.range(3, 9);
-      const cells: P[] = [];
-      for (let s = 1; s <= len; s++) {
-        const x = lx + dir * s;
-        if (get(x, r) !== T.EMPTY || get(x, r + 1) !== T.EMPTY || get(x, r - 1) === T.LADDER) break;
-        cells.push({ x, y: r });
+    // ceiling rails: off a ladder, directly under the floor it comes down from
+    for (const lx of rng.shuffle(ladderCols.slice())) {
+      if (!rng.chance(0.3 + 0.2 * p.c)) continue;
+      for (let y = top + 1; y < H - 2; y++) {
+        if (get(lx, y) !== T.LADDER) continue;
+        const dir = rng.chance(0.5) ? 1 : -1;
+        if (isBrick(lx + dir, y - 1) && rail(lx + dir, y, dir, rng.range(4, 11), true)) break;
       }
-      if (cells.length >= 3) for (const c of cells) set(c.x, c.y, T.POLE);
-      // POLE-ISLAND GOLD: gold on the bar, open air below — collect by hanging across, not standing.
-      if (cells.length >= 4 && rng.chance(0.3 + 0.3 * p.c)) {
-        const c = cells[rng.range(1, cells.length - 1)];
-        if (get(c.x, c.y + 1) === T.EMPTY && get(c.x, c.y + 2) === T.EMPTY) poleIslandCells.push({ x: c.x, y: c.y });
+    }
+    // ladder-to-ladder traverses over open space
+    for (let k = rng.chance(0.4 + 0.3 * p.c) ? 1 : 0; k > 0; k--) {
+      const cols = [...new Set(ladderCols)].sort((a, b) => a - b);
+      outer: for (let tries = 0; tries < 12; tries++) {
+        const a = rng.pick(cols), b = cols.find(c => c - a >= 4 && c - a <= 14);
+        if (b === undefined) continue;
+        for (let y = top + 1; y < H - 3; y++) {
+          if (get(a, y) !== T.LADDER || get(b, y) !== T.LADDER) continue;
+          let ok = true;
+          for (let x = a + 1; x < b && ok; x++) if (get(x, y) !== T.EMPTY || get(x, y + 1) !== T.EMPTY) ok = false;
+          if (ok) { for (let x = a + 1; x < b; x++) set(x, y, T.POLE); break outer; }
+        }
+      }
+    }
+    // hanging poles off ladders mid-climb (free end = drop-off point)
+    for (let k = rng.range(2, 4 + Math.round(p.c * 3)); k > 0; k--) {
+      for (let tries = 0; tries < 8; tries++) {
+        const lx = rng.pick(ladderCols.length ? ladderCols : [0]);
+        const r = rng.range(top + 1, H - 2);
+        if (get(lx, r) !== T.LADDER) continue;
+        const dir = rng.chance(0.5) ? 1 : -1;
+        if (rail(lx + dir, r, dir, rng.range(3, 10), false) || rail(lx - dir, r, -dir, rng.range(3, 10), false)) break;
+      }
+    }
+    // ladder spur: a ladder that rises 2-3 cells above its floor into open air, with a rail off its top
+    for (let k = rng.chance(0.3 + 0.3 * p.c) ? 1 : 0; k > 0; k--) {
+      for (let tries = 0; tries < 10; tries++) {
+        const lx = rng.pick(ladderCols.length ? ladderCols : [0]);
+        let f = -1;
+        for (let y = top + 1; y < H; y++) if (get(lx, y) === T.LADDER && get(lx, y - 1) === T.EMPTY) { f = y; break; }
+        const h = rng.range(2, 4), r = f - h;
+        if (f < 0 || r <= top) continue;
+        let ok = true;
+        for (let y = r; y < f && ok; y++) for (const dx of [-1, 0, 1]) if (get(lx + dx, y) !== T.EMPTY) ok = false;
+        if (!ok) continue;
+        for (let y = r; y < f; y++) set(lx, y, T.LADDER);
+        const dir = rng.chance(0.5) ? 1 : -1;
+        if (!rail(lx + dir, r, dir, rng.range(3, 9), false)) rail(lx - dir, r, -dir, rng.range(3, 9), false);
+        break;
       }
     }
 
@@ -517,7 +607,7 @@ export class LevelGenerator {
     const digCand: P[] = [];
     for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (comp[i] !== main || get(x, y) !== T.EMPTY || !isBrick(x, y + 1) || x === ex) continue;
+      if (comp[i] !== main || get(x, y) !== T.EMPTY || !(isBrick(x, y + 1) || get(x, y + 1) === T.LADDER) || x === ex) continue;
       if (Math.abs(x - sx) + Math.abs(y - (H - 2)) < 3) continue;
       (noDig[i] ? cand : digCand).push({ x, y });
     }
@@ -533,12 +623,26 @@ export class LevelGenerator {
       chosen.push(b);
       m.buriedGoldPositions.push(b);
     }
-    const poleGold = poleIslandCells.filter(c => comp[c.y * W + c.x] === main);
+    // POLE-DROP GOLD (originals: ~16% of gold sits under a pole, ~10% hangs in mid-air): gold floating 1-2 cells
+    // under a pole — hang along the bar, let go, collect it on the way down — or sitting on a floor just below.
+    const floatGold: P[] = [], underPole: P[] = [];
+    for (let y = 1; y < H - 2; y++) for (let x = 0; x < W; x++) {
+      if (get(x, y) !== T.POLE) continue;
+      for (const yy of [y + 1, y + 2]) {
+        const i = yy * W + x;
+        if (comp[i] !== main || get(x, yy) !== T.EMPTY || x === ex) continue;
+        if (!g.stable(x, yy)) { if (yy === y + 1 || get(x, y + 1) === T.EMPTY) floatGold.push({ x, y: yy }); }
+        else if (isBrick(x, yy + 1)) underPole.push({ x, y: yy });
+      }
+    }
+    rng.shuffle(floatGold); rng.shuffle(underPole);
+    const poleGold = [...floatGold.slice(0, rng.chance(0.3 * p.c) ? 2 : 1), ...underPole.slice(0, rng.chance(0.5) ? 1 : 0)];
     const escapeGold = escapeCells.filter(c => comp[c.y * W + c.x] === main);
     const vaultGold = vaultCells.filter(v => digCand.some(c => c.x === v.x && c.y === v.y));
     rng.shuffle(vaultGold); rng.shuffle(digCand);
-    for (const v of [...poleGold.slice(0, 1), ...escapeGold.slice(0, 1), ...vaultGold.slice(0, 1), ...digCand]) {
-      if (chosen.length >= Math.ceil(nGold / 4)) break;
+    const idiomGold = [...poleGold, ...escapeGold.slice(0, 1), ...vaultGold.slice(0, 1)];
+    for (const v of [...idiomGold, ...digCand]) {
+      if (chosen.length >= Math.ceil(nGold / 4) && !idiomGold.includes(v)) break;
       if (!chosen.some(c => Math.abs(c.x - v.x) < 3 && c.y === v.y)) chosen.push(v);
     }
     const pool = [...cand, ...digCand];
