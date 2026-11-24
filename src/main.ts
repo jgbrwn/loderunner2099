@@ -27,6 +27,8 @@ const config: Phaser.Types.Core.GameConfig = {
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   scene: [BootScene, MenuScene, GameScene],
+  // All sound is our own Web Audio graph (audio/SoundManager). Don't let Phaser open a second AudioContext.
+  audio: { noAudio: true },
 };
 
 patchTextResolution();

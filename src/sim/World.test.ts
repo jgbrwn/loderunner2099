@@ -43,6 +43,49 @@ describe('sim', () => {
     expect(w.players[0].score).toBeGreaterThanOrEqual(75);
   });
 
+  for (const holeTime of [1, 0.6]) it(`buried gold (holeTime ${holeTime}): trench through a 2-thick roof, pocket to pocket, grab gold, dig out the bottom`, () => {
+    const w = new World(mapFrom([
+      '..............',
+      '.P............',
+      '##############',
+      '##############',
+      '####...#######',
+      '##############',
+      '##############',
+      '######.$######',
+      '##############',
+      '..............',
+      '==============',
+    ]), { seed: 1, holeTime });
+    const p = w.players[0];
+    const settle = () => { for (let i = 0; i < 60 && (w.shouldFall(p) || p.ox !== 0 || p.oy !== 0 || p.mode === 'dig'); i++) run(w, 1); };
+    const walkTo = (x: number) => {
+      for (let i = 0; i < 200 && p.cx !== x; i++) run(w, 1, inp(p.cx < x ? { right: true } : { left: true }));
+      settle();
+    };
+    const dig = (d: -1 | 1) => { run(w, 1, inp(d < 0 ? { digLeft: true } : { digRight: true })); settle(); };
+    walkTo(3); dig(1);            // hole (4,2)
+    walkTo(2); dig(1);            // hole (3,2)
+    walkTo(3);                    // drop into (3,2), stand on (3,3)
+    expect([p.cx, p.cy]).toEqual([3, 2]);
+    dig(1);                       // hole (4,3) under the first hole
+    walkTo(4);                    // fall through into pocket 0
+    expect([p.cx, p.cy]).toEqual([4, 4]);
+    walkTo(5); dig(1);            // hole (6,5)
+    walkTo(4); dig(1);            // hole (5,5)
+    walkTo(5);                    // drop into (5,5)
+    expect([p.cx, p.cy]).toEqual([5, 5]);
+    dig(1);                       // hole (6,6)
+    walkTo(6);                    // fall into pocket 1
+    expect([p.cx, p.cy]).toEqual([6, 7]);
+    walkTo(7);                    // gold
+    expect(w.players[0].score).toBeGreaterThan(0);
+    dig(-1);                      // dig the pocket floor at the gold's level
+    walkTo(6);                    // ...and drop out underneath
+    expect(p.alive).toBe(true);
+    expect([p.cx, p.cy]).toEqual([6, 9]);
+  });
+
   it('trap brick can be entered from the side and fallen through', () => {
     const w = new World(mapFrom([
       'PX.....$',

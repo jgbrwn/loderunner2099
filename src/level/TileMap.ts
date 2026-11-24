@@ -26,6 +26,8 @@ export class TileMap {
   /** Player-safe cells where a guard may drop carried gold (in the player's final SCC). */
   public goldDropCells: { x: number; y: number }[] = [];
   public corridorGoldPositions: { x: number; y: number }[] = [];
+  /** Gold sealed in a buried brick mass (dig down to it, dig out the bottom). Informational. */
+  public buriedGoldPositions: { x: number; y: number }[] = [];
   
   constructor(width = CONFIG.GRID_WIDTH, height = CONFIG.GRID_HEIGHT) {
     this.width = width;
@@ -48,6 +50,8 @@ export class TileMap {
     this.exitLadders = [];
     this.enemyAssistedGoldPositions = [];
     this.enemyAssistedSpawns = [];
+    this.corridorGoldPositions = [];
+    this.buriedGoldPositions = [];
     this.goldDropCells = [];
   }
 
@@ -193,6 +197,8 @@ export class TileMap {
     copy.enemyAssistedGoldPositions = this.enemyAssistedGoldPositions.map(g => ({ ...g }));
     copy.enemyAssistedSpawns = this.enemyAssistedSpawns.map(g => ({ ...g }));
     copy.goldDropCells = this.goldDropCells.map(g => ({ ...g }));
+    copy.corridorGoldPositions = this.corridorGoldPositions.map(g => ({ ...g }));
+    copy.buriedGoldPositions = this.buriedGoldPositions.map(g => ({ ...g }));
     copy.holeDurationMultiplier = this.holeDurationMultiplier;
     return copy;
   }

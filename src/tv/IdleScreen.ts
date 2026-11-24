@@ -1,5 +1,5 @@
 // TV idle screen: after N minutes without input on the menu or a paused game. Neon scene, big clock,
-// Radio Paradise now-playing card, slow drift + periodic relayout against burn-in. Any input returns.
+// Radio (Radio Paradise / SomaFM) now-playing card, slow drift + periodic relayout against burn-in. Any input returns.
 import type Phaser from 'phaser';
 import { getInput, ACTIONS } from '../input/InputManager';
 import { getSoundManager } from '../audio/SoundManager';
@@ -122,15 +122,17 @@ export function initIdle(game: Phaser.Game): { dismiss(): boolean; show(): void 
 
   async function np(): Promise<void> {
     const sm = getSoundManager();
+    const mode = sm.getMusicMode();
     let n: Now | null = sm.nowPlaying();
-    if (!n && (sm.getMusicMode() === 'radio' || sm.getMusicMode() === 'soma')) {
-      try { n = await (await fetch('/api/radio/now')).json(); } catch { n = null; }
+    if (!n && (mode === 'radio' || mode === 'soma')) {
+      try { n = await (await fetch(mode === 'soma' ? '/api/radio/soma' : '/api/radio/now')).json(); } catch { n = null; }
     }
+    const station = mode === 'soma' ? 'SOMA FM · SPACE STATION' : 'RADIO PARADISE';
     const box = el?.querySelector('.np') as HTMLElement | null;
     if (!box) return;
     const esc = (t: string) => String(t ?? '').replace(/[<>&"]/g, c => `&#${c.charCodeAt(0)};`);
     box.innerHTML = n && n.title
-      ? `${n.coverUrl ? `<img alt="" src="${esc(n.coverUrl)}">` : ''}<div><div class="k">♪ RADIO PARADISE</div><div class="t">${esc(n.title)}</div><div class="a">${esc(n.artist)}</div></div>`
+      ? `${n.coverUrl ? `<img alt="" src="${esc(n.coverUrl)}">` : ''}<div><div class="k">♪ ${station}</div><div class="t">${esc(n.title)}</div><div class="a">${esc(n.artist)}</div></div>`
       : `<div class="logo">LODE RUNNER<br>2099</div>`;
   }
 

@@ -5,6 +5,13 @@ import { RadioPlayer, NowPlaying } from './Radio';
 
 export type MusicMode = 'procedural' | 'radio' | 'soma' | 'off';
 const MODE_KEY = 'lr2099.musicMode';
+const PATH_KEY = 'lr2099.audioPath';
+/** How Web Audio reaches the speakers. 'low' = default interactive latency; 'safe' = latencyHint 'playback'
+ *  (larger buffers; the same kind of output stream <audio> uses); 'media' = render into a MediaStream played
+ *  by an <audio> element. Android TV boxes (Onn 4K) can run an AudioContext whose low-latency output is silent
+ *  while <audio> (radio) plays fine, so TV defaults to 'safe'. */
+export type AudioPath = 'auto' | 'low' | 'safe' | 'media';
+const isTVPage = () => !!(window as any).__LR_TV__ || /LR2099TV/.test(navigator.userAgent);
 type MusicRequest = { kind: 'level'; seed: string; level: number; difficulty: string } | { kind: 'menu' };
 
 /**
@@ -28,27 +35,77 @@ export class SoundManager {
   private intensity = 0.5;
   private escape = false;
   private radio = new RadioPlayer();
+  private out: AudioNode | null = null;          // where the master chain ends (destination or MediaStream)
+  private mediaEl: HTMLAudioElement | null = null;
+  private path: AudioPath = 'auto';
+  private lastT = -1;
+  private stalls = 0;
 
   constructor() {
     try {
       const m = localStorage.getItem(MODE_KEY);
       if (m === 'procedural' || m === 'radio' || m === 'soma' || m === 'off') this.mode = m;
       if (this.mode !== 'off') this.lastNonOff = this.mode;
+      const p = localStorage.getItem(PATH_KEY);
+      if (p === 'low' || p === 'safe' || p === 'media') this.path = p;
     } catch { /* no storage */ }
     this.initAudio();
+    // Watchdog: an AudioContext that says 'running' but whose clock stopped has lost its output stream
+    // (e.g. HDMI/audio route change on a TV box). Rebuild it.
+    if (isTVPage()) setInterval(() => {
+      const c = this.ctx;
+      if (!c || c.state !== 'running' || document.hidden) { this.lastT = -1; return; }
+      if (this.lastT >= 0 && c.currentTime === this.lastT && this.stalls < 5) { this.stalls++; this.rebuildAudio(); return; }
+      this.lastT = c.currentTime;
+    }, 3000);
+  }
+
+  getAudioPath(): AudioPath { return this.path; }
+  /** Effective path after resolving 'auto'. */
+  resolvedPath(): Exclude<AudioPath, 'auto'> { return this.path === 'auto' ? (isTVPage() ? 'safe' : 'low') : this.path; }
+
+  setAudioPath(p: AudioPath): void {
+    this.path = p;
+    try { localStorage.setItem(PATH_KEY, p); } catch { /* ignore */ }
+    this.rebuildAudio();
+  }
+
+  /** Tear down and recreate the AudioContext + graph (path change, or a stalled output). */
+  rebuildAudio(): void {
+    this.killEngine();
+    try { void this.ctx?.close(); } catch { /* ignore */ }
+    if (this.mediaEl) { try { this.mediaEl.pause(); this.mediaEl.srcObject = null; } catch { /* ignore */ } this.mediaEl = null; }
+    this.ctx = null; this.masterGain = this.sfxGain = this.musicGain = null; this.out = null; this.noise = null;
+    this.lastT = -1;
+    this.initAudio();
+    void this.resume();
+    this.applyMusic(true);
   }
 
   private initAudio(): void {
     try {
-      const c = new (window.AudioContext || (window as any).webkitAudioContext)() as AudioContext;
+      const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+      const path = this.resolvedPath();
+      let c: AudioContext;
+      try { c = new AC({ latencyHint: path === 'low' ? 'interactive' : 'playback' }); } catch { c = new AC(); }
       this.ctx = c;
+      this.out = c.destination;
+      if (path === 'media' && typeof c.createMediaStreamDestination === 'function') {
+        const dest = c.createMediaStreamDestination();
+        const el = new Audio();
+        el.autoplay = true;
+        el.srcObject = dest.stream;
+        el.play().catch(() => { /* retried on next input via resume() */ });
+        this.mediaEl = el;
+        this.out = dest;
+      }
       const comp = c.createDynamicsCompressor();
       comp.threshold.value = -14;
       comp.knee.value = 8;
       comp.ratio.value = 4;
       comp.attack.value = 0.004;
       comp.release.value = 0.2;
-      comp.connect(c.destination);
+      comp.connect(this.out);
       this.masterGain = c.createGain();
       this.masterGain.gain.value = this.volume;
       this.masterGain.connect(comp);
@@ -67,7 +124,7 @@ export class SoundManager {
     }
   }
 
-  /** Fire a single audible oscillator straight to destination (bypasses music engine + gains).
+  /** Fire a single audible oscillator straight to the output (bypasses music engine + gains).
    *  If you hear this, Web Audio output works and the bug is in the music scheduler/gains. */
   testTone(): string {
     try {
@@ -77,21 +134,25 @@ export class SoundManager {
       const o = c.createOscillator(), g = c.createGain();
       o.type = 'square'; o.frequency.value = 880;
       g.gain.value = 0.3;
-      o.connect(g); g.connect(c.destination);
+      o.connect(g); g.connect(this.out ?? c.destination);
       o.start(); o.stop(c.currentTime + 0.6);
-      return `played @${c.currentTime.toFixed(1)} state=${c.state} rate=${c.sampleRate}`;
+      this.mediaEl?.play().catch(() => { /* ignore */ });
+      return `BEEP via ${this.resolvedPath().toUpperCase()} · t=${c.currentTime.toFixed(1)} ${c.state} ${c.sampleRate}Hz`;
     } catch (e) { return 'err ' + (e as Error).message; }
   }
 
   /** Diagnostic: current AudioContext state + whether a synth engine exists. */
   audioDebug(): string {
-    return `ctx=${this.ctx?.state ?? 'none'} engine=${this.engine ? 'y' : 'n'} mode=${this.mode} enabled=${this.enabled} req=${this.request ? 'y' : 'n'}`;
+    const c = this.ctx as (AudioContext & { outputLatency?: number }) | null;
+    const lat = c ? ` lat=${Math.round(((c.baseLatency ?? 0) + (c.outputLatency ?? 0)) * 1000)}ms` : '';
+    return `${this.resolvedPath()} ${c?.state ?? 'none'} t=${c ? c.currentTime.toFixed(1) : '-'}${lat} ${this.mode}${this.engine ? '+eng' : ''}${this.enabled ? '' : ' sfx-off'}${this.stalls ? ` stalls=${this.stalls}` : ''}`;
   }
 
   async resume(): Promise<void> {
     if (this.ctx?.state === 'suspended') {
       try { await this.ctx.resume(); } catch { /* ignore */ }
     }
+    if (this.mediaEl?.paused) this.mediaEl.play().catch(() => { /* needs gesture */ });
     if ((this.mode === 'radio' || this.mode === 'soma') && this.enabled) this.radio.tryPlay();
   }
 

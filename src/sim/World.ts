@@ -245,7 +245,8 @@ export class World {
     const x = p.cx + d, y = p.cy + 1;
     p.facing = d;
     if (this.tile(x, y) !== T.BRICK) return false;
-    if (this.tile(x, p.cy) !== T.EMPTY) return false;
+    const above = this.tile(x, p.cy); // an open dug hole counts as empty (classic multi-layer dig-down)
+    if (above !== T.EMPTY && above !== T.HOLE) return false;
     if (this.goldAt(x, p.cy) || this.guardAt(x, p.cy) || this.guardAt(x, y)) return false;
     p.ox = 0;
     p.mode = 'dig'; p.digTicks = DIG_TICKS; p.digX = x; p.digY = y;

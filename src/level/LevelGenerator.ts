@@ -253,7 +253,8 @@ export class LevelGenerator {
     }
 
     const poleIslandCells: P[] = [];   // gold sitting on a pole over open air (hang to collect)
-    const escapeCells: P[] = [];       // gold in a dig-out alcove (timed escape)
+    const escapeCells: P[] = [];       // gold in a drop-in / dig-out floor pit
+    const pitCells: P[] = [];
     // poles across gaps (at standing height)
     for (const [fy, gaps] of gapsByFloor) for (const [a, b] of gaps) {
       if (b - a >= 1 && rng.chance(0.4)) {
@@ -300,59 +301,103 @@ export class LevelGenerator {
       for (let x = a - 1; x <= a + w; x++) reserved[x] = 1;
     }
 
-    // BURIED VAULT (faithful to the original's deep mines): a 1-wide hard-walled column of ALTERNATING
-    // open pockets and diggable brick floors. Gold sits in one or more open pockets. The player digs the
-    // floor of the pocket they're standing in, drops to the next pocket (solid ground, NOT a hole), grabs
-    // gold, and repeats down to the bottom. Each pocket is a safe standing floor, so no internal ladder and
-    // no climb-out move is needed — you always land on solid brick. Depth scales with difficulty/level.
-    for (let k = rng.chance(0.22 + 0.3 * p.c) ? 1 : 0; k > 0; k--) {
+    // BURIED GOLD (the original's "gold under layers of brick", e.g. levels 17/29/101): a thick brick mass
+    // hanging under a floor, with sealed gold pockets inside. You dig down through the top layer(s), drop into
+    // a pocket and grab the gold; every pocket is 2-3 wide so you can dig its floor diagonally, drop into the
+    // next pocket, and finally dig the bottom layer at the gold's level and DROP OUT underneath into open air
+    // (no ladders, no climbing back up). 1-layer floors are a single dig+drop; 2-layer floors use the classic
+    // trench (dig two, drop, dig again). Depth/pocket count scale with difficulty and level. Solver-verified.
+    const buriedGold: P[] = [];
+    const sealed = new Set<number>(); // pocket cells: no guard spawns inside
+    if (rng.chance(0.22 + 0.3 * p.c + Math.min(0.15, this.levelNumber * 0.01))) {
       const lv = Math.min(this.levelNumber, 40);
-      const layers = Math.min(7, 2 + Math.round(p.c * 2) + Math.floor(lv / 6)); // # of brick floors to dig through
-      const x = rng.range(2, W - 2);
-      const yTop = rng.range(2, Math.max(3, H - layers * 2 - 2)); // top open pocket row
-      let ok = true;
-      for (let dx = -1; dx <= 1 && ok; dx++) if (reserved[x + dx]) ok = false;
-      if (get(x, yTop - 1) !== T.EMPTY || get(x, yTop) !== T.EMPTY) ok = false;
-      if (!ok) continue;
-      // Structure per layer (down): [open pocket row] [diggable brick floor row], hard side walls throughout.
-      // The player stands in the pocket (on the floor below), digs it, drops to the next pocket.
-      const goldRows: number[] = [];
-      let y = yTop;
-      for (let layer = 0; layer < layers; layer++) {
-        // open pocket row (empty, hard side walls)
-        set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD); set(x, y, T.EMPTY);
-        goldRows.push(y);
-        // diggable brick floor row (this is what you dig to drop to the next pocket)
-        set(x - 1, y + 1, T.BRICK_HARD); set(x + 1, y + 1, T.BRICK_HARD); set(x, y + 1, T.BRICK);
-        y += 2;
+      for (let tries = 0; tries < 80; tries++) {
+        // pocket plan (top-down): t0 = top thickness, K pockets, th[k] = thickness below pocket k (last = 1)
+        let K = Math.max(1, Math.min(4, 1 + Math.floor(p.c * 1.5 + lv / 10 + rng.next())));
+        const t0 = rng.chance(0.2 + 0.4 * p.c + lv * 0.01) ? 2 : 1;
+        const th: number[] = [];
+        for (let k = 0; k < K; k++) th.push(k === K - 1 ? 1 : rng.chance(0.2 + 0.4 * p.c + lv * 0.01) ? 2 : 1);
+        const rowsFor = (n: number) => t0 + n + th.slice(0, n - 1).reduce((s, v) => s + v, 0) + 1; // f..y1
+        // deepest plan that fits under some floor (deep masses need a high floor)
+        let fits: number[] = [];
+        for (; K >= 1; K--, th.length = K, K && (th[K - 1] = 1)) {
+          fits = floors.filter(y => y < H - 4 && y + rowsFor(K) - 1 <= H - 3);
+          if (fits.length) break;
+        }
+        if (!fits.length || K < 1) continue;
+        const f = rng.pick(fits);
+        const y1 = f + rowsFor(K) - 1;
+        // pockets: widths (3 when a 2-thick floor lies below, for the trench), staircase drift
+        const pw = th.map(t => (t === 2 ? 3 : rng.chance(0.3) ? 3 : 2));
+        const w = Math.max(...pw) + 2 + rng.range(0, 4);
+        const siteOk = (a: number) => {
+          for (let x = a - 1; x <= a + w; x++) {
+            if (!isBrick(x, f) || (get(x, f) === T.BRICK_HARD && x >= a && x < a + w) || get(x, f - 1) !== T.EMPTY || reserved[x]) return false;
+          }
+          for (let x = a; x < a + w; x++) for (let y = f + 1; y <= y1; y++) { const t = get(x, y); if (t !== T.EMPTY && t !== T.BRICK) return false; }
+          return true;
+        };
+        const sites: number[] = [];
+        for (let a = 1; a + w < W; a++) if (siteOk(a)) sites.push(a);
+        if (!sites.length) continue;
+        const a = rng.pick(sites);
+        const pr: number[] = [], px: number[] = [], drop: number[] = [];
+        let r = f + t0, ok = true;
+        let x0 = a + 1 + rng.range(0, w - 1 - pw[0]);
+        if (t0 === 2 && x0 === a + 1 && rng.chance(0.5)) x0++;
+        for (let k = 0; k < K && ok; k++) {
+          pr.push(r); px.push(x0);
+          if (k === K - 1) { drop.push(x0 + rng.range(0, pw[k])); break; }
+          // drop column into the next pocket (1-thick: any pocket column; 2-thick: an end cell of the 3-wide pocket)
+          const dc = th[k] === 2 ? (rng.chance(0.5) ? x0 : x0 + 2) : x0 + rng.range(0, pw[k]);
+          drop.push(dc);
+          const nw = pw[k + 1];
+          const lo = Math.max(a + 1, dc - nw + 1), hi = Math.min(a + w - 1 - nw, dc);
+          if (lo > hi) ok = false; else x0 = rng.range(lo, hi + 1);
+          r += th[k] + 1;
+        }
+        if (!ok) continue;
+        const ex = drop[K - 1];
+        if (get(ex, y1 + 1) !== T.EMPTY) continue;
+        for (let x = a; x < a + w; x++) for (let y = f; y <= y1; y++) set(x, y, T.BRICK);
+        for (let k = 0; k < K; k++) for (let i = 0; i < pw[k]; i++) { set(px[k] + i, pr[k], T.EMPTY); sealed.add(pr[k] * W + px[k] + i); }
+        // gold: deepest pocket always (not on its exit cell), shallower pockets sometimes (not on a drop/trench cell)
+        for (let k = K - 1; k >= 0; k--) {
+          if (k < K - 1 && !rng.chance(0.45)) continue;
+          const cells: number[] = [];
+          for (let i = 0; i < pw[k]; i++) {
+            const x = px[k] + i;
+            if (x === drop[k]) continue;
+            if (k < K - 1 && th[k] === 2 && x !== (drop[k] === px[k] ? px[k] + 2 : px[k])) continue; // trench back cell
+            cells.push(x);
+          }
+          if (cells.length) buriedGold.push({ x: rng.pick(cells), y: pr[k] });
+        }
+        for (let x = a - 1; x <= a + w; x++) reserved[x] = 1;
+        break;
       }
-      // final open pocket at the bottom sits on the level's real floor
-      set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD); set(x, y, T.EMPTY);
-      if (!isBrick(x, y + 1)) set(x, y + 1, T.BRICK);
-      goldRows.push(y);
-      // place gold in a pocket near the bottom (the reward for digging all the way down)
-      vaultCells.push({ x, y: goldRows[goldRows.length - 1] });
-      for (let dx = -1; dx <= 1; dx++) reserved[x + dx] = 1;
     }
 
-    // TIMED-ESCAPE ALCOVE: a 1-wide hard-walled nook holding gold, with a diggable brick floor as the only
-    // way out. The player drops in (or digs in), grabs the gold, then digs the floor and drops out before the
-    // entry hole refills — a classic single-dig timed escape. The floor below the alcove is open, so the drop
-    // always lands on a real floor (never a death trap).
+    // GOLD PIT (one-way drop pocket): a 2-wide pit cut into a floor, its own diggable floor one row down with open
+    // air beneath. Walk over it and you drop in; walls on both sides, so the only way on is to grab the gold and
+    // dig the pit floor diagonally (2 wide makes that possible) and drop out below. Solver-verified.
     for (let k = rng.chance(0.18 + 0.25 * p.c) ? 1 : 0; k > 0; k--) {
-      const x = rng.range(2, W - 2);
-      const y = rng.range(3, H - 4);
-      let ok = true;
-      for (let dx = -1; dx <= 1 && ok; dx++) if (reserved[x + dx]) ok = false;
-      // nook cell + open below-below for a safe landing
-      if (get(x, y) !== T.EMPTY || get(x, y + 2) !== T.EMPTY) ok = false;
-      if (!isBrick(x, y + 3)) ok = false;              // landing floor two below the dig floor
-      if (get(x - 1, y) !== T.EMPTY && get(x + 1, y) !== T.EMPTY) ok = false; // an open side to enter from
-      if (!ok) continue;
-      set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD);  // hard side walls (only floor exit)
-      set(x, y + 1, T.BRICK);                                       // diggable floor = the escape
-      escapeCells.push({ x, y });
-      reserved[x - 1] = reserved[x] = reserved[x + 1] = 1;
+      for (let tries = 0; tries < 20; tries++) {
+        const f = rng.pick(floors.length ? floors : [H - 1]), x = rng.range(2, W - 3);
+        if (f >= H - 3) continue;
+        let ok = true;
+        for (let dx = -1; dx <= 2 && ok; dx++) {
+          if (get(x + dx, f) !== T.BRICK || get(x + dx, f - 1) !== T.EMPTY || reserved[x + dx]) ok = false;
+        }
+        for (let dx = 0; dx <= 1 && ok; dx++) if (get(x + dx, f + 1) !== T.EMPTY || get(x + dx, f + 2) !== T.EMPTY) ok = false;
+        if (!ok) continue;
+        set(x, f, T.EMPTY); set(x + 1, f, T.EMPTY);
+        set(x, f + 1, T.BRICK); set(x + 1, f + 1, T.BRICK);
+        escapeCells.push({ x: x + rng.range(0, 2), y: f });
+        pitCells.push({ x, y: f }, { x: x + 1, y: f });
+        for (let dx = -1; dx <= 2; dx++) reserved[x + dx] = 1;
+        break;
+      }
     }
 
     // trap bricks over open space
@@ -479,6 +524,14 @@ export class LevelGenerator {
     const nAssist = assisted.length;
     const nGold = Math.max(1, rng.range(d.gold[0], d.gold[1] + 1) - nAssist);
     const chosen: P[] = [];
+    // a pit you can fall into but not get out of (and back to the exit) would be a pure death trap
+    if (pitCells.some(c => comp[c.y * W + c.x] !== main)) return null;
+    // buried gold is the point of the mass: if the solver can't route in-and-out of it, reject the candidate
+    for (const b of buriedGold) {
+      if (comp[b.y * W + b.x] !== main) return null;
+      chosen.push(b);
+      m.buriedGoldPositions.push(b);
+    }
     const poleGold = poleIslandCells.filter(c => comp[c.y * W + c.x] === main);
     const escapeGold = escapeCells.filter(c => comp[c.y * W + c.x] === main);
     const vaultGold = vaultCells.filter(v => digCand.some(c => c.x === v.x && c.y === v.y));
@@ -530,7 +583,7 @@ export class LevelGenerator {
     const ecand: P[] = [];
     for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (i >= N || comp[i] !== main || !reach[i] || get(x, y) !== T.EMPTY || !g.stable(x, y) || x === ex) continue;
+      if (i >= N || comp[i] !== main || !reach[i] || get(x, y) !== T.EMPTY || !g.stable(x, y) || x === ex || sealed.has(i)) continue;
       if (Math.abs(x - sx) + Math.abs(y - (H - 2)) < 10) continue;
       ecand.push({ x, y });
     }
