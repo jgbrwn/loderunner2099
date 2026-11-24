@@ -300,37 +300,38 @@ export class LevelGenerator {
       for (let x = a - 1; x <= a + w; x++) reserved[x] = 1;
     }
 
-    // BURIED VAULT (classic multi-layer dig-down): a 1-wide hard-walled shaft with a diggable brick roof
-    // of `depth` layers, gold at the bottom, and a ladder inside so the player can always climb out (never
-    // a death trap). The player digs through the roof layers one at a time. Depth scales with difficulty and
-    // level number (mirrors the original's deeper mines on later levels): 2-4 early/easy up to 5-13 deep on
-    // hard/ninja at higher levels. A free-standing shaft is carved straight down through whatever is below,
-    // so it does not depend on floor spacing.
+    // BURIED VAULT (faithful to the original's deep mines): a 1-wide hard-walled column of ALTERNATING
+    // open pockets and diggable brick floors. Gold sits in one or more open pockets. The player digs the
+    // floor of the pocket they're standing in, drops to the next pocket (solid ground, NOT a hole), grabs
+    // gold, and repeats down to the bottom. Each pocket is a safe standing floor, so no internal ladder and
+    // no climb-out move is needed — you always land on solid brick. Depth scales with difficulty/level.
     for (let k = rng.chance(0.22 + 0.3 * p.c) ? 1 : 0; k > 0; k--) {
       const lv = Math.min(this.levelNumber, 40);
-      const maxDepth = Math.min(13, 3 + Math.round(p.c * 4) + Math.floor(lv / 4)); // easy~3-4, ninja up to 13
-      const depth = rng.range(2, Math.max(3, maxDepth + 1));
+      const layers = Math.min(7, 2 + Math.round(p.c * 2) + Math.floor(lv / 6)); // # of brick floors to dig through
       const x = rng.range(2, W - 2);
-      const yTop = rng.range(2, Math.max(3, H - depth - 3)); // roof row; room below for the shaft
-      const yBot = yTop + depth;                             // gold sits here (on yBot+1 floor)
-      if (yBot + 1 >= H) continue;
+      const yTop = rng.range(2, Math.max(3, H - layers * 2 - 2)); // top open pocket row
       let ok = true;
       for (let dx = -1; dx <= 1 && ok; dx++) if (reserved[x + dx]) ok = false;
-      // need empty space above the roof to stand & dig, and a floor to hold the gold
       if (get(x, yTop - 1) !== T.EMPTY || get(x, yTop) !== T.EMPTY) ok = false;
       if (!ok) continue;
-      // roof row = diggable brick (the top of the shaft you dig first)
-      set(x, yTop, T.BRICK);
-      // interior diggable layers below the roof; hard side walls; internal ladder for escape
-      for (let y = yTop + 1; y <= yBot; y++) {
-        set(x - 1, y, T.LADDER);          // climbable left wall = guaranteed escape
-        set(x + 1, y, T.BRICK_HARD);      // right hard wall
-        if (y < yBot) set(x, y, T.BRICK); // diggable layers; bottom cell left empty for gold
-        else set(x, y, T.EMPTY);
+      // Structure per layer (down): [open pocket row] [diggable brick floor row], hard side walls throughout.
+      // The player stands in the pocket (on the floor below), digs it, drops to the next pocket.
+      const goldRows: number[] = [];
+      let y = yTop;
+      for (let layer = 0; layer < layers; layer++) {
+        // open pocket row (empty, hard side walls)
+        set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD); set(x, y, T.EMPTY);
+        goldRows.push(y);
+        // diggable brick floor row (this is what you dig to drop to the next pocket)
+        set(x - 1, y + 1, T.BRICK_HARD); set(x + 1, y + 1, T.BRICK_HARD); set(x, y + 1, T.BRICK);
+        y += 2;
       }
-      set(x, yBot + 1, T.BRICK);          // floor under the gold
-      set(x - 1, yBot + 1, T.BRICK); set(x + 1, yBot + 1, T.BRICK_HARD);
-      vaultCells.push({ x, y: yBot });
+      // final open pocket at the bottom sits on the level's real floor
+      set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD); set(x, y, T.EMPTY);
+      if (!isBrick(x, y + 1)) set(x, y + 1, T.BRICK);
+      goldRows.push(y);
+      // place gold in a pocket near the bottom (the reward for digging all the way down)
+      vaultCells.push({ x, y: goldRows[goldRows.length - 1] });
       for (let dx = -1; dx <= 1; dx++) reserved[x + dx] = 1;
     }
 
