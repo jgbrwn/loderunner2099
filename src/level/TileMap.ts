@@ -25,7 +25,8 @@ export class TileMap {
   public enemyAssistedSpawns: { x: number; y: number }[] = [];
   /** Player-safe cells where a guard may drop carried gold (in the player's final SCC). */
   public goldDropCells: { x: number; y: number }[] = [];
-  public corridorGoldPositions: { x: number; y: number }[] = [];
+  /** Guard-corridor gold (sealed sky passage) and the chimney column guards spawn into to fetch it. */
+  public corridorGoldPositions: { x: number; y: number; sx: number }[] = [];
   /** Gold sealed in a buried brick mass (dig down to it, dig out the bottom). Informational. */
   public buriedGoldPositions: { x: number; y: number }[] = [];
   

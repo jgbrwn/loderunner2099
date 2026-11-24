@@ -59,7 +59,8 @@ export class World {
     for (const e of this.exitLadders) if (this.tiles[e.y]?.[e.x] === T.LADDER_EXIT) this.tiles[e.y][e.x] = T.EMPTY;
     const assisted = new Set(map.enemyAssistedGoldPositions.map(g => `${g.x},${g.y}`));
     let id = 0;
-    for (const [k, g] of goldSet) this.golds.push({ id: id++, x: g.x, y: g.y, assisted: assisted.has(k), carriedBy: -1, collected: false });
+    const chimney = new Map((map.corridorGoldPositions ?? []).map(c => [`${c.x},${c.y}`, c.sx] as [string, number]));
+    for (const [k, g] of goldSet) this.golds.push({ id: id++, x: g.x, y: g.y, assisted: assisted.has(k), spawnX: chimney.get(k), carriedBy: -1, collected: false });
 
     const n = Math.max(1, Math.min(2, opts.players ?? 1));
     const starts = [map.playerStart, ...(n > 1 ? [this.findSecondStart(map.playerStart)] : [])];
@@ -342,7 +343,7 @@ export class World {
 
   private spawnGuard(g: SimGuard): void {
     const target = this.floorAssistedGold();
-    const col = target ? target.x : this.rng.range(0, this.width);
+    const col = target ? (target.spawnX ?? target.x) : this.rng.range(0, this.width);
     let pos: { x: number; y: number } | null = null;
     for (let y = 0; y < this.height && !pos; y++) {
       for (let d = 0; d < this.width && !pos; d++) {
@@ -367,7 +368,7 @@ export class World {
     this.addScore(hole ? hole.by : 0, SCORE.TRAP);
     if (g.carry >= 0 && this.tile(g.cx, g.cy - 1) === T.EMPTY && !this.goldAt(g.cx, g.cy - 1) && this.reach[g.cy - 1]?.[g.cx]) {
       const gold = this.golds[g.carry];
-      gold.carriedBy = -1; gold.x = g.cx; gold.y = g.cy - 1;
+      gold.carriedBy = -1; gold.spawnX = undefined; gold.x = g.cx; gold.y = g.cy - 1;
       g.carry = -1;
       this.emit({ t: 'goldDrop', g: g.id, x: gold.x, y: gold.y });
     }
@@ -408,7 +409,7 @@ export class World {
     }
     if (!pos) return;
     const gold = this.golds[g.carry];
-    gold.carriedBy = -1; gold.x = pos[0]; gold.y = pos[1];
+    gold.carriedBy = -1; gold.spawnX = undefined; gold.x = pos[0]; gold.y = pos[1];
     g.carry = -1; g.carryAge = 0; g.noPickX = pos[0]; g.noPickY = pos[1];
     this.emit({ t: 'goldDrop', g: g.id, x: pos[0], y: pos[1] });
   }
@@ -486,7 +487,7 @@ export class World {
       }
       if (dx !== null) {
         const gold = this.golds[g.carry];
-        gold.carriedBy = -1; gold.x = dx; gold.y = g.cy;
+        gold.carriedBy = -1; gold.spawnX = undefined; gold.x = dx; gold.y = g.cy;
         g.carry = -1; g.noPickX = dx; g.noPickY = g.cy;
         this.emit({ t: 'goldDrop', g: g.id, x: dx, y: g.cy });
       }

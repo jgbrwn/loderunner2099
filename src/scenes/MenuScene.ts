@@ -170,19 +170,32 @@ export class MenuScene extends Phaser.Scene {
           cycle: d => { Settings.reducedMotion = cyc(['auto', 'on', 'off'] as const as any[], Settings.reducedMotion, d); } },
         { label: 'IDLE SCREEN', visible: () => tvMode, value: () => (Settings.idleMinutes ? `${Settings.idleMinutes} MIN` : 'OFF'),
           cycle: d => { Settings.idleMinutes = cyc(idle, idle.includes(Settings.idleMinutes) ? Settings.idleMinutes : 5, d); } },
-        { label: 'AUDIO OUTPUT', visible: () => tvMode,
-          value: () => ({ auto: `AUTO (${sm.resolvedPath().toUpperCase()})`, low: 'LOW LATENCY', safe: 'SAFE', media: 'MEDIA STREAM' } as Record<string, string>)[sm.getAudioPath()],
-          cycle: d => { sm.setAudioPath(cyc(['auto', 'safe', 'media', 'low'] as const as any[], sm.getAudioPath(), d)); this.ui!.toast(sm.testTone(), 3500); } },
-        { label: 'PLAY TEST TONE', visible: () => tvMode, act: () => { void sm.resume(); this.ui!.toast(sm.testTone(), 4000); } },
-        { label: 'AUDIO STATUS', visible: () => tvMode, act: () => { void sm.resume(); this.ui!.toast(sm.audioDebug(), 5000); } },
-        { label: () => { const k = (window as any).LR2099TV?.lastKey?.(); return `REMOTE TEST  ${k ? k.slice(0, 22) : 'PRESS A BUTTON'}`; },
-          visible: () => tvMode && !!(window as any).LR2099TV?.lastKey, act: () => {} },
+        { label: 'DIAGNOSTICS', visible: () => tvMode, act: () => this.ui!.push(this.diagPage()) },
         { label: 'REMOTE SIDEWAYS', visible: () => tvMode && !!(window as any).LR2099TV?.setRotateRemote,
           value: () => (Settings.remoteSideways ? 'ON (HOLD SIDEWAYS)' : 'OFF'),
           cycle: () => { Settings.remoteSideways = !Settings.remoteSideways; (window as any).LR2099TV?.setRotateRemote(Settings.remoteSideways); } },
         { label: 'RADIO WHEN IDLE', visible: () => tvMode, value: () => ({ off: 'OFF', rp: 'RADIO PARADISE', soma: 'SOMA SPACE STATION' } as Record<string, string>)[Settings.idleRadio],
           cycle: (d: number) => { const a = ['off', 'rp', 'soma'] as const; Settings.idleRadio = a[(a.indexOf(Settings.idleRadio) + (d || 1) + 3) % 3]; } },
         { label: 'CONTROLS', act: () => this.ui!.push(this.controlsPage()) },
+        { label: 'BACK', act: () => this.ui!.back(), cls: 'dim' },
+      ],
+    };
+  }
+
+  /** TV troubleshooting (audio output path, test tone, audio status, remote key readout). */
+  private diagPage(): Page {
+    const sm = getSoundManager();
+    const cyc = <T>(list: T[], cur: T, d: number): T => list[(list.indexOf(cur) + d + list.length) % list.length];
+    return {
+      title: 'DIAGNOSTICS',
+      items: [
+        { label: 'AUDIO OUTPUT', 
+          value: () => ({ auto: `AUTO (${sm.resolvedPath().toUpperCase()})`, low: 'LOW LATENCY', safe: 'SAFE', media: 'MEDIA STREAM' } as Record<string, string>)[sm.getAudioPath()],
+          cycle: d => { sm.setAudioPath(cyc(['auto', 'safe', 'media', 'low'] as const as any[], sm.getAudioPath(), d)); this.ui!.toast(sm.testTone(), 3500); } },
+        { label: 'PLAY TEST TONE', act: () => { void sm.resume(); this.ui!.toast(sm.testTone(), 4000); } },
+        { label: 'AUDIO STATUS', act: () => { void sm.resume(); this.ui!.toast(sm.audioDebug(), 5000); } },
+        { label: () => { const k = (window as any).LR2099TV?.lastKey?.(); return `REMOTE TEST  ${k ? k.slice(0, 22) : 'PRESS A BUTTON'}`; },
+          visible: () => !!(window as any).LR2099TV?.lastKey, act: () => {} },
         { label: 'BACK', act: () => this.ui!.back(), cls: 'dim' },
       ],
     };

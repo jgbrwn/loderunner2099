@@ -63,6 +63,7 @@ export interface SimGuard extends Actor {
 export interface SimGold {
   id: number; x: number; y: number;
   assisted: boolean;
+  spawnX?: number;     // column a fetching guard respawns into (guard-corridor chimney)
   carriedBy: number;   // guard id, -1 if on floor
   collected: boolean;
 }
