@@ -293,6 +293,39 @@ export class LevelGenerator {
       for (let x = a - 1; x <= a + w; x++) reserved[x] = 1;
     }
 
+    // BURIED VAULT (classic multi-layer dig-down): a 1-wide hard-walled shaft whose roof is 2-4 stacked
+    // diggable brick layers. Gold sits at the bottom. A ladder runs down the shaft's inside wall so the
+    // player can always climb back out (never a death trap), and can dig through the roof layers one at a
+    // time. Appears on a minority of levels, more on higher difficulty / later levels.
+    for (let k = rng.chance(0.22 + 0.35 * p.c + 0.02 * Math.min(this.levelNumber, 10)) ? 1 : 0; k > 0; k--) {
+      if (levels.length < 3) break;
+      const i = rng.range(1, levels.length);
+      const yTop = levels[i], yBot = levels[i - 1]; // roof on upper floor, gold above lower floor
+      const depth = yBot - yTop - 1;                 // brick layers in the shaft
+      if (depth < 2 || depth > 4 || yBot >= H - 1) continue;
+      const x = rng.range(2, W - 2);
+      let ok = !reserved[x] && !reserved[x - 1] && !reserved[x + 1];
+      for (let y = yTop - 1; ok && y <= yBot; y++) {
+        // roof row must be solid brick floor, interior empty, above-roof empty (to stand & dig)
+        if (y === yTop && !isBrick(x, yTop)) ok = false;
+        if (y > yTop && y < yBot && get(x, y) !== T.EMPTY) ok = false;
+        if (y === yTop - 1 && get(x, y) !== T.EMPTY) ok = false;
+      }
+      if (get(x, yBot) !== T.BRICK) ok = false;      // gold sits on a brick floor
+      if (!ok) continue;
+      // hard side walls so the shaft is a clean well; ladder on the left wall for escape
+      for (let y = yTop; y < yBot; y++) {
+        set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD);
+        if (y > yTop) set(x, y, T.BRICK);             // diggable roof layers
+      }
+      // interior ladder down one side so the player can descend/escape without relying on hole timing
+      // (placed on the hard-wall column is not climbable, so put ladder inside the shaft edge instead)
+      for (let y = yTop; y < yBot; y++) set(x - 1, y, T.LADDER);
+      set(x - 1, yBot, T.LADDER);
+      vaultCells.push({ x, y: yBot - 1 });
+      for (let dx = -1; dx <= 1; dx++) reserved[x + dx] = 1;
+    }
+
     // trap bricks over open space
     for (let k = (rng.chance(p.trap * 4) ? 1 : 0) + (rng.chance(p.trap * 2) ? 1 : 0); k > 0; k--) {
       for (let tries = 0; tries < 20; tries++) {
