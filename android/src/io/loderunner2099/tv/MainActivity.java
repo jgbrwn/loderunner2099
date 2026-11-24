@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -49,6 +50,10 @@ public class MainActivity extends Activity {
                 | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
         homeUrl = prefs().getString(PREF_URL, DEFAULT_URL);
         if (!allowedUrl(homeUrl)) homeUrl = DEFAULT_URL;
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        // Request audio focus up front so Web Audio (synth/SFX) is routed to an audible stream.
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am != null) am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(5, 1, 15));
         setContentView(web);
