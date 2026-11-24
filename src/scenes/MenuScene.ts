@@ -171,6 +171,7 @@ export class MenuScene extends Phaser.Scene {
         { label: 'IDLE SCREEN', visible: () => tvMode, value: () => (Settings.idleMinutes ? `${Settings.idleMinutes} MIN` : 'OFF'),
           cycle: d => { Settings.idleMinutes = cyc(idle, idle.includes(Settings.idleMinutes) ? Settings.idleMinutes : 5, d); } },
         { label: () => `AUDIO  ${sm.audioDebug().slice(0, 40)}`, visible: () => tvMode, act: () => { sm.resume(); this.ui!.render(); } },
+        { label: 'PLAY TEST TONE', visible: () => tvMode, act: () => { this.ui!.toast(sm.testTone(), 4000); } },
         { label: () => { const k = (window as any).LR2099TV?.lastKey?.(); return `REMOTE TEST  ${k ? k.slice(0, 22) : 'PRESS A BUTTON'}`; },
           visible: () => tvMode && !!(window as any).LR2099TV?.lastKey, act: () => {} },
         { label: 'REMOTE SIDEWAYS', visible: () => tvMode && !!(window as any).LR2099TV?.setRotateRemote,

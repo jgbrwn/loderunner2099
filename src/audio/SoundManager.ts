@@ -67,6 +67,22 @@ export class SoundManager {
     }
   }
 
+  /** Fire a single audible oscillator straight to destination (bypasses music engine + gains).
+   *  If you hear this, Web Audio output works and the bug is in the music scheduler/gains. */
+  testTone(): string {
+    try {
+      if (!this.ctx) return 'no ctx';
+      const c = this.ctx;
+      void c.resume();
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'square'; o.frequency.value = 880;
+      g.gain.value = 0.3;
+      o.connect(g); g.connect(c.destination);
+      o.start(); o.stop(c.currentTime + 0.6);
+      return `played @${c.currentTime.toFixed(1)} state=${c.state} rate=${c.sampleRate}`;
+    } catch (e) { return 'err ' + (e as Error).message; }
+  }
+
   /** Diagnostic: current AudioContext state + whether a synth engine exists. */
   audioDebug(): string {
     return `ctx=${this.ctx?.state ?? 'none'} engine=${this.engine ? 'y' : 'n'} mode=${this.mode} enabled=${this.enabled} req=${this.request ? 'y' : 'n'}`;
