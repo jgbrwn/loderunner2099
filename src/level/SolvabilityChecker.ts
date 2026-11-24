@@ -317,7 +317,10 @@ function reverseReach(g: MoveGraph, targets: number[]): Uint8Array {
 
 /** Guard falls from (x,0) onto the gold, then walks (no digging) to >=2 drop cells. */
 export function isAssistable(map: TileMap, g: MoveGraph, p: Position, dropMask: Uint8Array): boolean {
-  for (let y = 0; y < p.y; y++) if (map.tiles[y][p.x] !== TileType.EMPTY) return false;
+  // Sky-ledge gold needs open sky above (guard falls straight onto it). Corridor gold is roofed — a guard
+  // walks in from the side instead, so skip the open-sky check for those cells.
+  const corridor = map.corridorGoldPositions?.some(c => c.x === p.x && c.y === p.y);
+  if (!corridor) { for (let y = 0; y < p.y; y++) if (map.tiles[y][p.x] !== TileType.EMPTY) return false; }
   if (!g.supportBelow(p.x, p.y)) return false;
   const r = g.bfs([p.y * g.W + p.x], true);
   let n = 0;

@@ -25,6 +25,7 @@ export class TileMap {
   public enemyAssistedSpawns: { x: number; y: number }[] = [];
   /** Player-safe cells where a guard may drop carried gold (in the player's final SCC). */
   public goldDropCells: { x: number; y: number }[] = [];
+  public corridorGoldPositions: { x: number; y: number }[] = [];
   
   constructor(width = CONFIG.GRID_WIDTH, height = CONFIG.GRID_HEIGHT) {
     this.width = width;

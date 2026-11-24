@@ -365,6 +365,7 @@ export class LevelGenerator {
 
     // sky ledges for enemy-assisted gold
     const assisted: P[] = [];
+    const corridorGold = new Set<string>();
     const ledges: P[][] = [];
     for (let k = p.assisted; k > 0; k--) {
       const ly = top - rng.range(2, 4), len = rng.range(3, 6), lx = rng.range(1, W - len - 1);
@@ -376,6 +377,31 @@ export class LevelGenerator {
       for (let x = lx; x < lx + len; x++) { set(x, ly, T.BRICK_HARD); cells.push({ x, y: ly }); }
       ledges.push(cells);
       assisted.push({ x: lx + rng.range(0, len), y: ly - 1 });
+    }
+
+    // GUARD-CORRIDOR GOLD (distinct from sky-ledge assisted gold): a 1-tall, hard-roofed passage holding
+    // gold. Guards walk straight through it (open both ends); the player would be cornered walking in, so
+    // the intended play is to let a guard pick the gold up and carry it out to a safe drop cell. Reachable
+    // by the player, but a "bait" layout. Guard delivery is verified separately (roofed, so walk-in not fall-in).
+    const corridors: P[] = [];
+    for (let k = rng.chance(0.3 + 0.3 * p.c) ? 1 : 0; k > 0; k--) {
+      const y = rng.range(top + 2, H - 2), len = rng.range(4, 7), lx = rng.range(1, W - len - 1);
+      let ok = true;
+      for (let x = lx; x < lx + len && ok; x++) {
+        if (get(x, y) !== T.EMPTY || get(x, y - 1) !== T.EMPTY) ok = false;   // passage + roof space empty
+        if (!isBrick(x, y + 1)) ok = false;                                    // floor to walk on
+        if (reserved[x]) ok = false;
+      }
+      // both ends must be open so guards walk through
+      if (!isBrick(lx - 1, y + 1) || !isBrick(lx + len, y + 1)) ok = false;
+      if (!ok) continue;
+      for (let x = lx; x < lx + len; x++) set(x, y - 1, T.BRICK_HARD);        // hard roof (can't dig in)
+      const gold = { x: lx + rng.range(1, len - 1), y };
+      corridors.push(gold);
+      assisted.push(gold);
+      corridorGold.add(`${gold.x},${gold.y}`);
+      m.corridorGoldPositions.push(gold);                                                     // mark as guard-assisted gold
+      for (let x = lx; x < lx + len; x++) reserved[x] = 1;
     }
 
     // player start on the ground
@@ -487,7 +513,7 @@ export class LevelGenerator {
       assisted.forEach((a, li) => {
         if (res.enemyAssistedPositions.some(q => q.x === a.x && q.y === a.y)) return;
         set(a.x, a.y, T.EMPTY);
-        for (const c of ledges[li]) set(c.x, c.y, T.EMPTY);
+        if (!corridorGold.has(`${a.x},${a.y}`) && ledges[li]) for (const c of ledges[li]) set(c.x, c.y, T.EMPTY);
         m.goldPositions = m.goldPositions.filter(q => q !== a);
         m.enemyAssistedGoldPositions = m.enemyAssistedGoldPositions.filter(q => q !== a);
         m.enemyAssistedSpawns = m.enemyAssistedSpawns.filter(q => q.x !== a.x);
