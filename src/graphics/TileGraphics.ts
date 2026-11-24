@@ -38,7 +38,13 @@ export class TileGraphics {
     for (let k = 0; k < 4; k++) add('refill' + k, ctx => drawRefill(ctx, theme, (k + 1) / 5));
     add('warn', ctx => { ctx.fillStyle = rgba(0xff2040, 0.25); ctx.fillRect(1, 1, 30, 30); ctx.strokeStyle = rgba(0xff3050, 0.9); ctx.lineWidth = 2; ctx.strokeRect(1, 1, 30, 30); });
     for (let k = 0; k < 6; k++) add('gold' + k, ctx => drawGold(ctx, theme.gold, k, -1));
-    for (let k = 0; k < 6; k++) add('golda' + k, ctx => drawGold(ctx, theme.gold, k, theme.enemy));
+    // Guard-assisted gold bracket: must contrast with the gold on EVERY theme. Some themes have
+    // gold and enemy colours that are near-identical (Matrix greens, Neon Noir pinks), so pick the
+    // guard colour when it contrasts, else fall back to a bright cyan/white that reads on any theme.
+    const lum = (c: number) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255);
+    const gl = lum(theme.gold), el = lum(theme.enemy);
+    const markColor = Math.abs(gl - el) > 60 ? theme.enemy : mix(theme.enemy, 0xffffff, 0.55);
+    for (let k = 0; k < 6; k++) add('golda' + k, ctx => drawGold(ctx, theme.gold, k, markColor));
     // FX
     add('px', ctx => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 2, 2); }, 2, 2);
     add('spark', ctx => { ctx.fillStyle = '#fff'; ctx.fillRect(3, 0, 1, 7); ctx.fillRect(0, 3, 7, 1); ctx.fillRect(2, 2, 3, 3); }, 7, 7);

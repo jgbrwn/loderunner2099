@@ -26,8 +26,8 @@ const SYSTEM: Pick<KeyBindings, 'pause' | 'back' | 'confirm'> = {
 export const DEFAULT_BINDINGS: KeyBindings[] = [
   { // P1: arrows + WASD, dig Z/X or Q/E; TV remote media keys dig
     left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
-    digLeft: ['KeyZ', 'KeyQ', 'MediaRewind', 'MediaTrackPrevious', 'ChannelDown'],
-    digRight: ['KeyX', 'KeyE', 'MediaFastForward', 'MediaTrackNext', 'ChannelUp'], ...SYSTEM,
+    digLeft: ['KeyZ', 'KeyQ', 'MediaRewind', 'MediaTrackPrevious', 'ChannelUp', 'MediaVolumeUp', 'VolumeUp', 'F1'],
+    digRight: ['KeyX', 'KeyE', 'MediaFastForward', 'MediaTrackNext', 'ChannelDown', 'MediaVolumeDown', 'VolumeDown', 'F2'], ...SYSTEM,
   },
   { // P2: IJKL, dig U/O
     left: ['KeyJ'], right: ['KeyL'], up: ['KeyI'], down: ['KeyK'], digLeft: ['KeyU'], digRight: ['KeyO'],

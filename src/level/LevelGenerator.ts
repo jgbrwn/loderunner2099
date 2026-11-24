@@ -252,6 +252,8 @@ export class LevelGenerator {
       gapsByFloor.set(y, gaps);
     }
 
+    const poleIslandCells: P[] = [];   // gold sitting on a pole over open air (hang to collect)
+    const escapeCells: P[] = [];       // gold in a dig-out alcove (timed escape)
     // poles across gaps (at standing height)
     for (const [fy, gaps] of gapsByFloor) for (const [a, b] of gaps) {
       if (b - a >= 1 && rng.chance(0.4)) {
@@ -273,6 +275,11 @@ export class LevelGenerator {
         cells.push({ x, y: r });
       }
       if (cells.length >= 3) for (const c of cells) set(c.x, c.y, T.POLE);
+      // POLE-ISLAND GOLD: gold on the bar, open air below — collect by hanging across, not standing.
+      if (cells.length >= 4 && rng.chance(0.3 + 0.3 * p.c)) {
+        const c = cells[rng.range(1, cells.length - 1)];
+        if (get(c.x, c.y + 1) === T.EMPTY && get(c.x, c.y + 2) === T.EMPTY) poleIslandCells.push({ x: c.x, y: c.y });
+      }
     }
 
     // vaults: hard walls, diggable brick ceiling & floor, gold inside (dig in, dig out)
@@ -293,37 +300,58 @@ export class LevelGenerator {
       for (let x = a - 1; x <= a + w; x++) reserved[x] = 1;
     }
 
-    // BURIED VAULT (classic multi-layer dig-down): a 1-wide hard-walled shaft whose roof is 2-4 stacked
-    // diggable brick layers. Gold sits at the bottom. A ladder runs down the shaft's inside wall so the
-    // player can always climb back out (never a death trap), and can dig through the roof layers one at a
-    // time. Appears on a minority of levels, more on higher difficulty / later levels.
-    for (let k = rng.chance(0.22 + 0.35 * p.c + 0.02 * Math.min(this.levelNumber, 10)) ? 1 : 0; k > 0; k--) {
-      if (levels.length < 3) break;
-      const i = rng.range(1, levels.length);
-      const yTop = levels[i], yBot = levels[i - 1]; // roof on upper floor, gold above lower floor
-      const depth = yBot - yTop - 1;                 // brick layers in the shaft
-      if (depth < 2 || depth > 4 || yBot >= H - 1) continue;
+    // BURIED VAULT (classic multi-layer dig-down): a 1-wide hard-walled shaft with a diggable brick roof
+    // of `depth` layers, gold at the bottom, and a ladder inside so the player can always climb out (never
+    // a death trap). The player digs through the roof layers one at a time. Depth scales with difficulty and
+    // level number (mirrors the original's deeper mines on later levels): 2-4 early/easy up to 5-13 deep on
+    // hard/ninja at higher levels. A free-standing shaft is carved straight down through whatever is below,
+    // so it does not depend on floor spacing.
+    for (let k = rng.chance(0.22 + 0.3 * p.c) ? 1 : 0; k > 0; k--) {
+      const lv = Math.min(this.levelNumber, 40);
+      const maxDepth = Math.min(13, 3 + Math.round(p.c * 4) + Math.floor(lv / 4)); // easy~3-4, ninja up to 13
+      const depth = rng.range(2, Math.max(3, maxDepth + 1));
       const x = rng.range(2, W - 2);
-      let ok = !reserved[x] && !reserved[x - 1] && !reserved[x + 1];
-      for (let y = yTop - 1; ok && y <= yBot; y++) {
-        // roof row must be solid brick floor, interior empty, above-roof empty (to stand & dig)
-        if (y === yTop && !isBrick(x, yTop)) ok = false;
-        if (y > yTop && y < yBot && get(x, y) !== T.EMPTY) ok = false;
-        if (y === yTop - 1 && get(x, y) !== T.EMPTY) ok = false;
-      }
-      if (get(x, yBot) !== T.BRICK) ok = false;      // gold sits on a brick floor
+      const yTop = rng.range(2, Math.max(3, H - depth - 3)); // roof row; room below for the shaft
+      const yBot = yTop + depth;                             // gold sits here (on yBot+1 floor)
+      if (yBot + 1 >= H) continue;
+      let ok = true;
+      for (let dx = -1; dx <= 1 && ok; dx++) if (reserved[x + dx]) ok = false;
+      // need empty space above the roof to stand & dig, and a floor to hold the gold
+      if (get(x, yTop - 1) !== T.EMPTY || get(x, yTop) !== T.EMPTY) ok = false;
       if (!ok) continue;
-      // hard side walls so the shaft is a clean well; ladder on the left wall for escape
-      for (let y = yTop; y < yBot; y++) {
-        set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD);
-        if (y > yTop) set(x, y, T.BRICK);             // diggable roof layers
+      // roof row = diggable brick (the top of the shaft you dig first)
+      set(x, yTop, T.BRICK);
+      // interior diggable layers below the roof; hard side walls; internal ladder for escape
+      for (let y = yTop + 1; y <= yBot; y++) {
+        set(x - 1, y, T.LADDER);          // climbable left wall = guaranteed escape
+        set(x + 1, y, T.BRICK_HARD);      // right hard wall
+        if (y < yBot) set(x, y, T.BRICK); // diggable layers; bottom cell left empty for gold
+        else set(x, y, T.EMPTY);
       }
-      // interior ladder down one side so the player can descend/escape without relying on hole timing
-      // (placed on the hard-wall column is not climbable, so put ladder inside the shaft edge instead)
-      for (let y = yTop; y < yBot; y++) set(x - 1, y, T.LADDER);
-      set(x - 1, yBot, T.LADDER);
-      vaultCells.push({ x, y: yBot - 1 });
+      set(x, yBot + 1, T.BRICK);          // floor under the gold
+      set(x - 1, yBot + 1, T.BRICK); set(x + 1, yBot + 1, T.BRICK_HARD);
+      vaultCells.push({ x, y: yBot });
       for (let dx = -1; dx <= 1; dx++) reserved[x + dx] = 1;
+    }
+
+    // TIMED-ESCAPE ALCOVE: a 1-wide hard-walled nook holding gold, with a diggable brick floor as the only
+    // way out. The player drops in (or digs in), grabs the gold, then digs the floor and drops out before the
+    // entry hole refills — a classic single-dig timed escape. The floor below the alcove is open, so the drop
+    // always lands on a real floor (never a death trap).
+    for (let k = rng.chance(0.18 + 0.25 * p.c) ? 1 : 0; k > 0; k--) {
+      const x = rng.range(2, W - 2);
+      const y = rng.range(3, H - 4);
+      let ok = true;
+      for (let dx = -1; dx <= 1 && ok; dx++) if (reserved[x + dx]) ok = false;
+      // nook cell + open below-below for a safe landing
+      if (get(x, y) !== T.EMPTY || get(x, y + 2) !== T.EMPTY) ok = false;
+      if (!isBrick(x, y + 3)) ok = false;              // landing floor two below the dig floor
+      if (get(x - 1, y) !== T.EMPTY && get(x + 1, y) !== T.EMPTY) ok = false; // an open side to enter from
+      if (!ok) continue;
+      set(x - 1, y, T.BRICK_HARD); set(x + 1, y, T.BRICK_HARD);  // hard side walls (only floor exit)
+      set(x, y + 1, T.BRICK);                                       // diggable floor = the escape
+      escapeCells.push({ x, y });
+      reserved[x - 1] = reserved[x] = reserved[x + 1] = 1;
     }
 
     // trap bricks over open space
@@ -424,9 +452,11 @@ export class LevelGenerator {
     const nAssist = assisted.length;
     const nGold = Math.max(1, rng.range(d.gold[0], d.gold[1] + 1) - nAssist);
     const chosen: P[] = [];
+    const poleGold = poleIslandCells.filter(c => comp[c.y * W + c.x] === main);
+    const escapeGold = escapeCells.filter(c => comp[c.y * W + c.x] === main);
     const vaultGold = vaultCells.filter(v => digCand.some(c => c.x === v.x && c.y === v.y));
     rng.shuffle(vaultGold); rng.shuffle(digCand);
-    for (const v of [...vaultGold.slice(0, 1), ...digCand]) {
+    for (const v of [...poleGold.slice(0, 1), ...escapeGold.slice(0, 1), ...vaultGold.slice(0, 1), ...digCand]) {
       if (chosen.length >= Math.ceil(nGold / 4)) break;
       if (!chosen.some(c => Math.abs(c.x - v.x) < 3 && c.y === v.y)) chosen.push(v);
     }

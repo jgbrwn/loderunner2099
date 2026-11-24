@@ -167,6 +167,8 @@ export class MenuScene extends Phaser.Scene {
           cycle: d => { Settings.reducedMotion = cyc(['auto', 'on', 'off'] as const as any[], Settings.reducedMotion, d); } },
         { label: 'IDLE SCREEN', visible: () => tvMode, value: () => (Settings.idleMinutes ? `${Settings.idleMinutes} MIN` : 'OFF'),
           cycle: d => { Settings.idleMinutes = cyc(idle, idle.includes(Settings.idleMinutes) ? Settings.idleMinutes : 5, d); } },
+        { label: () => { const k = (window as any).LR2099TV?.lastKey?.(); return `REMOTE TEST  ${k ? k.slice(0, 22) : 'PRESS A BUTTON'}`; },
+          visible: () => tvMode && !!(window as any).LR2099TV?.lastKey, act: () => {} },
         { label: 'REMOTE SIDEWAYS', visible: () => tvMode && !!(window as any).LR2099TV?.setRotateRemote,
           value: () => (Settings.remoteSideways ? 'ON (HOLD SIDEWAYS)' : 'OFF'),
           cycle: () => { Settings.remoteSideways = !Settings.remoteSideways; (window as any).LR2099TV?.setRotateRemote(Settings.remoteSideways); } },
