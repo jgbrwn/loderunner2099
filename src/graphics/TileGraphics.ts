@@ -31,7 +31,9 @@ export class TileGraphics {
     add('edge_top', ctx => drawEdge(ctx, theme));
     for (let v = 0; v < 2; v++) add('hard' + v, ctx => drawHard(ctx, theme, v));
     add('ladder', ctx => drawLadder(ctx, theme.ladder));
-    add('ladder_exit', ctx => drawLadder(ctx, mix(theme.ladder, 0xffffff, 0.45), true));
+    // Escape ladder: the regular ladder alloyed with the theme's gold (it's what the gold unlocked) —
+    // same shape, a clear but quiet hue shift. Themes can override via `exitLadder`.
+    add('ladder_exit', ctx => drawLadder(ctx, theme.exitLadder ?? mix(theme.ladder, theme.gold, 0.42), true));
     add('pole', ctx => drawPole(ctx, theme));
     add('hole', ctx => drawHole(ctx, theme));
     for (let k = 0; k < 5; k++) add('crumble' + k, ctx => drawCrumble(ctx, theme, (k + 1) / 6));
@@ -163,7 +165,8 @@ function drawLadder(ctx: Ctx, color: number, exit = false): void {
   for (const x of [5, 25]) { px(ctx, x, 0, 2, 32, color); px(ctx, x, 0, 1, 32, core); }
   // rungs
   for (let y = 3; y < 32; y += 8) { px(ctx, 7, y, 18, 2, color); px(ctx, 7, y, 18, 1, core); px(ctx, 7, y + 2, 18, 1, shade(color, 0.4), 0.6); }
-  if (exit) for (let y = 7; y < 32; y += 8) { px(ctx, 15, y, 2, 1, 0xffffff); px(ctx, 14, y + 1, 1, 1, 0xffffff, 0.7); px(ctx, 17, y + 1, 1, 1, 0xffffff, 0.7); }
+  // escape ladder: a small bright stud mid-rung, in its own colour (not white) so it stays subtle
+  if (exit) for (let y = 3; y < 32; y += 8) px(ctx, 15, y, 2, 2, tint(color, 1.5), 0.9);
 }
 
 function drawPole(ctx: Ctx, theme: Theme): void {

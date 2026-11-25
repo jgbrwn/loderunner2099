@@ -147,6 +147,8 @@ export interface Theme {
   enemy: number;
   hudText: number;
   hudBg: number;
+  /** escape (hidden) ladder colour; default = ladder alloyed with gold */
+  exitLadder?: number;
   glow?: boolean;
   scanlines?: boolean;
 }
@@ -201,6 +203,7 @@ export const THEMES: Record<string, Theme> = {
     brick: 0x1a1a1a,
     brickHard: 0x0a0a0a,
     ladder: 0x00ffff,
+    exitLadder: 0x9a8cff,  // cyan+pink alloy reads as dull steel here; neon violet instead
     pole: 0x333333,
     gold: 0xff0088,
     player: 0xffffff,

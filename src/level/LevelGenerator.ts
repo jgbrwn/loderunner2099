@@ -712,16 +712,33 @@ export class LevelGenerator {
         const saved = [...inner, ...walls].map(q => ({ ...q, t: get(q.x, q.y) }));
         for (const q of inner) set(q.x, q.y, T.EMPTY);
         for (const q of walls) set(q.x, q.y, T.BRICK_HARD);
-        const ladder: P[] = [];
-        for (let y = f; y <= f + h; y++) ladder.push({ x: mx, y });
-        const g2 = new MoveGraph(m, false), c2 = g2.scc(), r2 = g2.bfs([start]);
         const inside = (f + h) * W + (dir > 0 ? xa : xb);   // far corner of the room floor
-        const lostCells = before.filter(i => c2[i] !== c2[start] && !inner.some(q => q.y * W + q.x === i));
-        // small dead corners that become unreachable are fine; nothing may become a one-way trap by accident
-        const lost = lostCells.length > 4 || lostCells.some(i => r2[i]);
-        let good = !lost && !!r2[inside] && !g2.bfs([inside])[start];
-        if (good) { m.exitLadders = ladder; good = !!new MoveGraph(m, true).bfs([inside])[start]; m.exitLadders = []; }
-        if (!good) { for (const q of saved) set(q.x, q.y, q.t); continue; }
+        // Shaft styles: MISSING RUNG (originals 88, 113) = a visible ladder down into the room with a 1-2 cell
+        // gap you can climb down through but not back up; the hidden ladder fills the gap. Else (or if no gap
+        // works) the whole shaft is hidden and you just fall in.
+        const shafts: P[][] = [];
+        if (rng.chance(0.5)) {
+          const gaps: [number, number][] = [];
+          for (let a = f + 1; a < f + h; a++) for (let b = a; b < Math.min(a + 2, f + h); b++) gaps.push([a, b]);
+          for (const [a, b] of rng.shuffle(gaps)) { const q: P[] = []; for (let y = a; y <= b; y++) q.push({ x: mx, y }); shafts.push(q); }
+        }
+        const full: P[] = [];
+        for (let y = f; y <= f + h; y++) full.push({ x: mx, y });
+        shafts.push(full);
+        let ladder: P[] = [], g2: MoveGraph | null = null, c2 = comp, r2 = reach;
+        for (const hid of shafts) {
+          const vis = full.filter(q => !hid.some(c => c.y === q.y));
+          for (const q of vis) set(q.x, q.y, T.LADDER);
+          g2 = new MoveGraph(m, false); c2 = g2.scc(); r2 = g2.bfs([start]);
+          const lostCells = before.filter(i => c2[i] !== c2[start] && !inner.some(q => q.y * W + q.x === i));
+          // small dead corners that become unreachable are fine; nothing may become a one-way trap by accident
+          const lost = lostCells.length > 4 || lostCells.some(i => r2[i]);
+          let good = !lost && !!r2[inside] && !g2.bfs([inside])[start];
+          if (good) { m.exitLadders = hid; good = !!new MoveGraph(m, true).bfs([inside])[start]; m.exitLadders = []; }
+          if (good) { ladder = hid; break; }
+          for (const q of vis) set(q.x, q.y, T.EMPTY);
+        }
+        if (!ladder.length || !g2) { for (const q of saved) set(q.x, q.y, q.t); continue; }
         // 1-2 gold on the room's floor (never on the ladder column)
         const spots = rng.shuffle(inner.filter(q => q.y === f + h && q.x !== mx));
         pocketGold = spots.slice(0, w >= 5 && rng.chance(0.5) ? 2 : 1);
