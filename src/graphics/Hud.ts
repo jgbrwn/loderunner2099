@@ -25,6 +25,8 @@ export class Hud {
   private icons: Phaser.GameObjects.Image[] = [];
   private bar!: Phaser.GameObjects.Graphics;
   private last = '';
+  /** click / tap on the seed (copies the share link) */
+  onSeed?: () => void;
 
   constructor(scene: Phaser.Scene, rect: Rect, theme: Theme) {
     this.scene = scene;
@@ -58,6 +60,7 @@ export class Hud {
     mk('goldL', 384, dim, 11); mk('gold', 0, theme.gold, 13);
     mk('p2L', 610, dim, 11); mk('p2', 634, 0xffffff, 16);
     mk('diff', 790, theme.hudText, 12, 1); mk('seed', 905, dim, 12, 1);
+    this.texts.seed.setInteractive({ useHandCursor: true }).on('pointerup', () => this.onSeed?.());
   }
 
   update(d: HudData): void {

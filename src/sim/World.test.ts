@@ -86,6 +86,44 @@ describe('sim', () => {
     expect([p.cx, p.cy]).toEqual([6, 9]);
   });
 
+  for (const holeTime of [1, 0.7]) it(`buried gold (holeTime ${holeTime}): 3-layer staircase cut through a solid roof into the pocket`, () => {
+    const w = new World(mapFrom([
+      '..............',
+      '.P............',
+      '##############',
+      '##############',
+      '##############',
+      '#####.$#######',
+      '##############',
+      '..............',
+      '==============',
+    ]), { seed: 1, holeTime });
+    const p = w.players[0];
+    // brisk human-like play: hold the direction until centred on the target cell, no idle ticks
+    const fallDone = () => { for (let i = 0; i < 60 && (w.shouldFall(p) || p.oy !== 0); i++) run(w, 1); };
+    const walkTo = (x: number) => {
+      const d = p.cx < x ? 1 : -1, k = inp(d > 0 ? { right: true } : { left: true });
+      for (let i = 0; i < 200 && (p.cx !== x || (d > 0 ? p.ox < 0 : p.ox > 0)) && !w.shouldFall(p); i++) run(w, 1, k);
+      fallDone();
+    };
+    const dig = (d: -1 | 1) => { run(w, 1, inp(d < 0 ? { digLeft: true } : { digRight: true })); for (let i = 0; i < 30 && p.mode === 'dig'; i++) run(w, 1); };
+    walkTo(4); dig(1);            // (5,2)
+    walkTo(3); dig(1);            // (4,2)
+    walkTo(2); dig(1);            // (3,2)
+    walkTo(3);                    // drop into (3,2)
+    expect([p.cx, p.cy]).toEqual([3, 2]);
+    walkTo(4); dig(1);            // stand on (4,3), dig (5,3)
+    walkTo(3); dig(1);            // dig (4,3)
+    walkTo(4);                    // drop into (4,3)
+    expect([p.cx, p.cy]).toEqual([4, 3]);
+    dig(1);                       // (5,4)
+    walkTo(5);                    // fall through into the pocket
+    expect([p.cx, p.cy]).toEqual([5, 5]);
+    walkTo(6);
+    expect(p.alive).toBe(true);
+    expect(w.players[0].score).toBeGreaterThan(0);
+  });
+
   it('trap brick can be entered from the side and fallen through', () => {
     const w = new World(mapFrom([
       'PX.....$',

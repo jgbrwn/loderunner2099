@@ -96,41 +96,43 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     holeTime: 1.3,
     lastSection: 0.05,
   },
+  // v2 tuning: NORMAL sits midway between the old EASY and old NORMAL, HARD is roughly the old NORMAL
+  // (a notch above), NINJA midway between the old HARD and old NINJA.
   normal: {
     name: 'NORMAL',
     lives: 7,
-    enemies: [2, 3],
-    gold: [8, 12],
-    complexity: 0.6,          // moderate complexity
-    ladderDensity: 0.5,       // moderate ladders
-    trapBrickChance: 0.1,
-    enemySpeed: 1.0,
-    holeTime: 1.0,
-    lastSection: 0.1,
+    enemies: [1, 3],
+    gold: [6, 10],
+    complexity: 0.5,
+    ladderDensity: 0.65,
+    trapBrickChance: 0.075,
+    enemySpeed: 0.85,
+    holeTime: 1.15,
+    lastSection: 0.08,
   },
   hard: {
     name: 'HARD',
     lives: 9,
-    enemies: [3, 4],
-    gold: [12, 16],
-    complexity: 0.8,          // more complex layouts
-    ladderDensity: 0.35,      // fewer easy routes
-    trapBrickChance: 0.15,
-    enemySpeed: 1.2,
-    holeTime: 0.8,
-    lastSection: 0.15,
+    enemies: [2, 3],
+    gold: [9, 13],
+    complexity: 0.65,
+    ladderDensity: 0.47,
+    trapBrickChance: 0.11,
+    enemySpeed: 1.05,
+    holeTime: 0.95,
+    lastSection: 0.12,
   },
   ninja: {
     name: 'NINJA',
     lives: 11,
-    enemies: [4, 5],
-    gold: [16, 20],
-    complexity: 1.0,          // maximum complexity
-    ladderDensity: 0.25,      // very sparse ladders - must dig!
-    trapBrickChance: 0.2,
-    enemySpeed: 1.4,
-    holeTime: 0.6,
-    lastSection: 0.2,
+    enemies: [3, 5],
+    gold: [14, 18],
+    complexity: 0.9,
+    ladderDensity: 0.3,
+    trapBrickChance: 0.175,
+    enemySpeed: 1.3,
+    holeTime: 0.7,
+    lastSection: 0.17,
   },
 };
 

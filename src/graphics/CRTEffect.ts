@@ -53,6 +53,8 @@ export class CRTEffect {
     if (this.barrel) this.barrel.active = this.enabled;
   }
 
+  /** re-read the reduced-motion setting */
+  refresh(): void { this.apply(); }
   setEnabled(enabled: boolean): void { this.enabled = enabled; this.apply(); }
   toggle(): boolean { this.setEnabled(!this.enabled); return this.enabled; }
   setIntensity(intensity: number): void { this.intensity = Math.max(0, Math.min(1, intensity)); this.apply(); }

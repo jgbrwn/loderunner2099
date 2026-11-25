@@ -5,7 +5,7 @@ import { TileMap } from '../level/TileMap';
 import { LevelGenerator } from '../level/LevelGenerator';
 import { FieldView } from '../graphics/FieldView';
 import { Hud } from '../graphics/Hud';
-import { computeLayout, type FieldLayout } from '../graphics/Layout';
+import { computeLayout, reducedMotion, type FieldLayout } from '../graphics/Layout';
 import { CRTEffect } from '../graphics/CRTEffect';
 import { generateSeedCode } from '../utils/SeededRandom';
 import { getSoundManager, type MusicMode } from '../audio/SoundManager';
@@ -116,6 +116,8 @@ export class GameScene extends Phaser.Scene {
         scores: [0, 0], acc: 0, waiting: false, wins: 0,
       });
       if (this.mode === 'versus') this.boards[i].view.playerIndexOffset = i;
+      const hud = this.boards[i].hud;
+      if (hud) hud.onSeed = () => this.copySeedLink();
     }
 
     const K = Phaser.Input.Keyboard.KeyCodes;
@@ -279,6 +281,7 @@ export class GameScene extends Phaser.Scene {
     this.menuItems = page === 'main' ? [
       { label: () => 'RESUME', act: () => this.closeMenu() },
       { label: () => 'RESTART LEVEL', act: () => { this.closeMenu(); if (!this.transitioning) this.restartLevel(); } },
+      { label: () => 'NEW SEED', act: () => this.restartWithNewSeed() },
       { label: () => 'OPTIONS', act: () => this.setMenuPage('options') },
       ...(fullscreenSupported() ? [{ label: () => `FULLSCREEN  ◀ ${isFullscreen() ? 'ON' : 'OFF'} ▶`, act: () => { void toggleFullscreen().then(() => this.renderMenu()); }, adj: () => { void toggleFullscreen().then(() => this.renderMenu()); } }] : []),
       { label: () => 'QUIT TO MENU', act: () => this.returnToMenu() },
@@ -286,6 +289,7 @@ export class GameScene extends Phaser.Scene {
       { label: () => `MUSIC  ◀ ${({ procedural: 'SYNTH', radio: 'RADIO PARADISE', soma: 'SOMA FM', off: 'OFF' } as Record<string, string>)[sm.getMusicMode()]} ▶`, act: fx(() => this.cycleMusic(1)), adj: fx(d => this.cycleMusic(d)) },
       { label: () => `SOUND  ◀ ${sm.isEnabled() ? 'ON' : 'OFF'} ▶`, act: fx(() => sm.toggle()), adj: fx(() => sm.toggle()) },
       { label: () => `CRT  ◀ ${this.crtOn() ? 'ON' : 'OFF'} ▶`, act: fx(() => this.toggleCRT()), adj: fx(() => this.toggleCRT()) },
+      { label: () => `REDUCED MOTION  ◀ ${Settings.reducedMotion.toUpperCase()} ▶`, act: fx(() => this.cycleReducedMotion(1)), adj: fx(d => this.cycleReducedMotion(d)) },
       { label: () => `THEME  ◀ ${this.theme.name.toUpperCase()} ▶`, act: () => this.cycleTheme(1), adj: d => this.cycleTheme(d) },
       { label: () => `SPEED  ◀ x${CONFIG.SPEED_MULTIPLIERS[this.speedIndex]} ▶`, act: fx(() => this.setSpeed(1, true)), adj: fx(d => this.setSpeed(d)) },
       { label: () => 'BACK', act: () => this.setMenuPage('main') },
@@ -480,6 +484,43 @@ export class GameScene extends Phaser.Scene {
     this.paused = false;
     this.showMessage('');
     this.newLevel();
+  }
+
+  /** Pause menu ▸ NEW SEED: a fresh run with the same difficulty, mode, lives rule and TV pairing. */
+  private restartWithNewSeed(): void {
+    if (this.leaving) return;
+    this.leaving = true;
+    getInput().swallow();
+    this.scene.restart({
+      seed: generateSeedCode(), difficulty: this.difficulty, mode: this.mode,
+      tv: this.tvMode, unlimited: this.unlimited,
+    } as GameInitData);
+  }
+
+  private cycleReducedMotion(d: number): void {
+    const opts = ['auto', 'on', 'off'] as const;
+    Settings.reducedMotion = opts[(opts.indexOf(Settings.reducedMotion) + d + 3) % 3];
+    const on = reducedMotion();
+    for (const b of this.boards) b.view.setReducedMotion(on);
+    this.crtEffect.refresh();
+  }
+
+  /** Click / tap the HUD seed: copy this game's share link. */
+  private copySeedLink(): void {
+    const url = this.getShareURL();
+    const done = (ok: boolean) => this.showMessage(ok ? `LINK COPIED\n${this.seedCode}` : url, ok ? 1400 : 4000);
+    const fallback = (): boolean => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        return ok;
+      } catch { return false; }
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(() => done(true), () => done(fallback()));
+    else done(fallback());
   }
 
   private returnToMenu(): void {

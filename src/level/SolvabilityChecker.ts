@@ -7,7 +7,7 @@ import { TileMap } from './TileMap';
  * Nodes: one per grid cell ("static" cell) plus one "in a freshly dug hole" node per cell.
  * Edges: walk L/R (when supported / on ladder / on pole), climb up (on ladder), climb/drop down,
  * fall (unsupported), dig L/R (then drop into the hole), and a 2-layer trench macro
- * (dig x+d, step back, dig x, drop, dig x+d one row lower, drop).
+ * (dig x+d, step back, dig x, drop, dig x+d one row lower, drop) and its 3-layer staircase extension.
  * A hole node with no outgoing edge is a death trap (hole refills on the player).
  *
  * Solvable iff the gold SCCs (Tarjan condensation) form a chain reachable from the start and the
@@ -51,7 +51,7 @@ export interface LevelAnalysis {
 }
 
 const DIG = 1;
-const MAXE = 8;
+const MAXE = 10;
 
 export class MoveGraph {
   readonly W: number; readonly H: number; readonly N: number;
@@ -139,6 +139,18 @@ export class MoveGraph {
           this.add(i, this.holeNode(tx, ty + 1), DIG);
         }
       }
+      // 3-layer staircase (buried gold under three bricks): dig x+d, x, x-d on the top layer (stepping back
+      // each time), drop into x-d, walk to x and dig (x+d,y+2), back to x-d and dig (x,y+2), drop into x,
+      // dig (x+d,y+3), drop in. Needs firm footing at each stand cell; ~6 digs, well inside every hole time.
+      const cx = x - 2 * d;
+      if (ty + 2 < H && v === TileType.EMPTY && cx >= 0 && cx < W && bx >= 0 && bx < W &&
+          this.tile(x, ty) === TileType.BRICK && this.tile(bx, ty) === TileType.BRICK &&
+          this.tile(bx, y) === TileType.EMPTY &&
+          !this.solid(cx, y) && this.tile(cx, y) !== TileType.POLE && this.supportBelow(cx, y) &&
+          this.tile(tx, ty + 1) === TileType.BRICK && this.tile(x, ty + 1) === TileType.BRICK && this.solid(bx, ty + 1) &&
+          this.tile(tx, ty + 2) === TileType.BRICK && this.solid(x, ty + 2)) {
+        this.add(i, this.holeNode(tx, ty + 2), DIG);
+      }
     }
   }
 
@@ -207,7 +219,7 @@ export class MoveGraph {
 }
 
 export function maxEnemyAssistedGold(difficultyKey: string): number {
-  return ({ easy: 0, normal: 1, hard: 2, ninja: 3 } as Record<string, number>)[difficultyKey] ?? 0;
+  return ({ easy: 0, normal: 1, hard: 1, ninja: 2 } as Record<string, number>)[difficultyKey] ?? 0;
 }
 
 /**

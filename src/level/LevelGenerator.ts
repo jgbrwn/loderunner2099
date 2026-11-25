@@ -79,7 +79,7 @@ export class LevelGenerator {
     let best: { map: TileMap; res: SolvabilityResult; score: number } | null = null;
     let attempts = 0, valid = 0;
     for (; attempts < 60 && valid < candidates; attempts++) {
-      const want = this.rng.chance(0.25 + 0.25 * maxA) ? this.rng.range(1, maxA + 1) : 0;
+      const want = this.rng.chance((0.25 + 0.25 * maxA) * (this.difficultyKey === 'normal' ? 0.5 : 1)) ? this.rng.range(1, maxA + 1) : 0;
       const r = this.candidate({ ...params, assisted: maxA ? want : 0, pocket: pocket && attempts < 45 });
       if (!r) continue;
       valid++;
@@ -312,27 +312,43 @@ export class LevelGenerator {
     // Ours were 50% trivial. Every candidate run is now tested on the move graph (no digging) without it:
     // where does each end lead (the cell beyond it, or where you land if you drop off), and how far apart are
     // those two places without the bar? LINK / detour runs are kept, trivial ones only rarely.
-    const DIRS_TRIVIAL_KEEP = 0.2;
+    // v2 (re-measured against the originals with drops counted): letting go of a bar is a move too, so a run's
+    // purpose is the best of end-to-end AND end-to-drop-landing. Originals: 58% of runs are true links, only
+    // ~11% are mild detours (ratio 3-10) and ~22% trivial. Ours kept every "detour" (dist > 2*len+6), which let
+    // through lots of bars you could just as well walk around (40% of runs) - those felt pointless. Now: links
+    // and strong detours (ratio > 10) are kept, mild detours sometimes, trivial ones rarely.
+    const KEEP: Record<string, number> = { link: 1, detour: 1, mild: 0.2, trivial: 0.08 };
     const landAt = (x: number, y: number): number => {
       if (x < 0 || x >= W || isBrick(x, y)) return -1;
       let yy = y;
       while (yy + 1 < H && get(x, yy) !== T.LADDER && get(x, yy) !== T.POLE && get(x, yy + 1) !== T.LADDER && !isBrick(x, yy + 1)) yy++;
       return yy * W + x;
     };
-    const purposeOf = (cells: P[]): 'link' | 'detour' | 'trivial' | 'deadend' => {
-      const y = cells[0].y, a = Math.min(...cells.map(c => c.x)), b = Math.max(...cells.map(c => c.x));
-      const A = landAt(a - 1, y), B = landAt(b + 1, y);
-      if (A < 0 || B < 0) return 'deadend';
+    const purposeOf = (cells: P[]): 'link' | 'detour' | 'mild' | 'trivial' => {
+      const y = cells[0].y, a = Math.min(...cells.map(c => c.x)), b = Math.max(...cells.map(c => c.x)), len = b - a + 1;
+      const ends = [{ at: landAt(a - 1, y), x: a - 1 }, { at: landAt(b + 1, y), x: b + 1 }].filter(e => e.at >= 0);
+      if (!ends.length) return 'trivial';
       const gr = new MoveGraph(m, false), N2 = 2 * W * H;
-      const dA = new Int16Array(N2).fill(-1), dB = new Int16Array(N2).fill(-1);
-      gr.bfs([A], true, undefined, dA); gr.bfs([B], true, undefined, dB);
-      if (dA[B] < 0 || dB[A] < 0) return 'link';
-      return Math.max(dA[B], dB[A]) > 2 * (b - a + 1) + 6 ? 'detour' : 'trivial';
+      const dist = ends.map(e => { const d = new Int16Array(N2).fill(-1); gr.bfs([e.at], true, undefined, d); return d; });
+      let best = 0;
+      if (ends.length === 2) {
+        const u = dist[0][ends[1].at], v = dist[1][ends[0].at];
+        best = u < 0 || v < 0 ? 999 : Math.max(u, v) / len;
+      }
+      for (let x = a; x <= b && best < 999; x++) {
+        if (y + 1 >= H || isBrick(x, y + 1)) continue;
+        const L = landAt(x, y + 1);
+        if (L < 0) continue;
+        for (let k = 0; k < ends.length; k++) {
+          const d = dist[k][L];
+          best = Math.max(best, d < 0 ? 999 : d / (Math.abs(x - ends[k].x) + 2));
+        }
+      }
+      return best >= 999 ? 'link' : best > 10 ? 'detour' : best > 3 ? 'mild' : 'trivial';
     };
-    const tryPole = (cells: P[], deadendKeep = 0.5): boolean => {
+    const tryPole = (cells: P[]): boolean => {
       if (cells.length < 2) return false;
-      const k = purposeOf(cells);
-      const keep = k === 'link' || k === 'detour' || (k === 'deadend' && rng.chance(deadendKeep)) || (k === 'trivial' && rng.chance(DIRS_TRIVIAL_KEEP));
+      const keep = rng.chance(KEEP[purposeOf(cells)]);
       if (keep) for (const c of cells) set(c.x, c.y, T.POLE);
       return keep;
     };
@@ -348,7 +364,7 @@ export class LevelGenerator {
     // a rail is tried at its full length first, then shorter (a shorter bar may end over a different landing)
     const rail = (x0: number, y: number, dir: number, maxLen: number, needCeil: boolean): number => {
       const cells = railCells(x0, y, dir, maxLen, needCeil);
-      for (let n = cells.length; n >= 3; n -= rng.range(1, 3)) if (tryPole(cells.slice(0, n), 0.15)) return n;
+      for (let n = cells.length; n >= 3; n -= rng.range(1, 3)) if (tryPole(cells.slice(0, n))) return n;
       return 0;
     };
     // bridges across gaps (at standing height)
@@ -398,7 +414,7 @@ export class LevelGenerator {
           if (t !== T.EMPTY || get(x, y + 1) !== T.EMPTY || get(x, y - 1) === T.LADDER) break;
           cells.push({ x, y });
         }
-        if (hit && cells.length >= 3 && tryPole(cells, 0)) break;
+        if (hit && cells.length >= 3 && tryPole(cells)) break;
       }
     }
     // hanging poles off ladders mid-climb (free end = drop-off point)
@@ -460,9 +476,13 @@ export class LevelGenerator {
       for (let tries = 0; tries < 80; tries++) {
         // pocket plan (top-down): t0 = top thickness, K pockets, th[k] = thickness below pocket k (last = 1)
         let K = Math.max(1, Math.min(4, 1 + Math.floor(p.c * 1.5 + lv / 10 + rng.next())));
-        const t0 = rng.chance(0.2 + 0.4 * p.c + lv * 0.01) ? 2 : 1;
+        // layer thickness 1-3. Three solid layers (original level 12 style) is the rare deep variant: a 3-wide
+        // staircase cut (dig three, drop, dig two, drop, dig one) — never on the very first levels.
+        const p2 = 0.2 + 0.4 * p.c + lv * 0.01, p3 = this.levelNumber < 3 ? 0 : 0.06 + 0.2 * p.c + lv * 0.004;
+        const thick = () => { const r = rng.next(); return r < p3 ? 3 : r < p3 + p2 ? 2 : 1; };
+        const t0 = thick();
         const th: number[] = [];
-        for (let k = 0; k < K; k++) th.push(k === K - 1 ? 1 : rng.chance(0.2 + 0.4 * p.c + lv * 0.01) ? 2 : 1);
+        for (let k = 0; k < K; k++) th.push(k === K - 1 ? 1 : thick());
         const rowsFor = (n: number) => t0 + n + th.slice(0, n - 1).reduce((s, v) => s + v, 0) + 1; // f..y1
         // deepest plan that fits under some floor (deep masses need a high floor)
         let fits: number[] = [];
@@ -473,8 +493,8 @@ export class LevelGenerator {
         if (!fits.length || K < 1) continue;
         const f = rng.pick(fits);
         const y1 = f + rowsFor(K) - 1;
-        // pockets: widths (3 when a 2-thick floor lies below, for the trench), staircase drift
-        const pw = th.map(t => (t === 2 ? 3 : rng.chance(0.3) ? 3 : 2));
+        // pockets: widths (3 when a 2-thick floor lies below, for the trench; 4 above a 3-thick one), staircase drift
+        const pw = th.map(t => (t === 3 ? 4 : t === 2 ? 3 : rng.chance(0.3) ? 3 : 2));
         const w = Math.max(...pw) + 2 + rng.range(0, 4);
         const siteOk = (a: number) => {
           for (let x = a - 1; x <= a + w; x++) {
@@ -495,7 +515,7 @@ export class LevelGenerator {
           pr.push(r); px.push(x0);
           if (k === K - 1) { drop.push(x0 + rng.range(0, pw[k])); break; }
           // drop column into the next pocket (1-thick: any pocket column; 2-thick: an end cell of the 3-wide pocket)
-          const dc = th[k] === 2 ? (rng.chance(0.5) ? x0 : x0 + 2) : x0 + rng.range(0, pw[k]);
+          const dc = th[k] >= 2 ? (rng.chance(0.5) ? x0 : x0 + pw[k] - 1) : x0 + rng.range(0, pw[k]);
           drop.push(dc);
           const nw = pw[k + 1];
           const lo = Math.max(a + 1, dc - nw + 1), hi = Math.min(a + w - 1 - nw, dc);
@@ -514,7 +534,7 @@ export class LevelGenerator {
           for (let i = 0; i < pw[k]; i++) {
             const x = px[k] + i;
             if (x === drop[k]) continue;
-            if (k < K - 1 && th[k] === 2 && x !== (drop[k] === px[k] ? px[k] + 2 : px[k])) continue; // trench back cell
+            if (k < K - 1 && th[k] >= 2 && x !== (drop[k] === px[k] ? px[k] + pw[k] - 1 : px[k])) continue; // trench back cell
             cells.push(x);
           }
           if (cells.length) buriedGold.push({ x: rng.pick(cells), y: pr[k] });
@@ -673,7 +693,7 @@ export class LevelGenerator {
         for (let xx = x; get(xx, y) === T.POLE; xx++) cells.push({ x: xx, y });
         for (const c of cells) set(c.x, c.y, T.EMPTY);
         const k = purposeOf(cells);
-        let keep = k !== 'trivial' || rng.chance(DIRS_TRIVIAL_KEEP);
+        let keep = k === 'link' || k === 'detour' || rng.chance(KEEP[k]);
         if (!keep) {
           const g2 = new MoveGraph(m, false), c2 = g2.scc();
           if (sccSize(c2) < base - cells.length) keep = true; else { base = sccSize(c2); changed = true; }
