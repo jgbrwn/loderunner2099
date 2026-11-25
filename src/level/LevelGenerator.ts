@@ -76,14 +76,18 @@ export class LevelGenerator {
     // LAST-GOLD SECTION is decided per level (all candidates share it, so best-of-N doesn't filter it out).
     // Not on the first levels of easy / normal.
     const pocket = this.levelNumber >= (d.lastSection <= 0.1 ? 3 : 2) && this.rng.chance(d.lastSection);
+    // ENEMY-ASSISTED GOLD (the bracketed gold only a guard can fetch) is also decided per level, so the
+    // best-of-N choice can't quietly filter it out; candidates that pull it off get a big score bonus.
+    const assistRate = ({ easy: 0.12, normal: 0.33, hard: 0.5, ninja: 0.7 } as Record<string, number>)[this.difficultyKey] ?? 0;
+    const want = maxA && this.levelNumber >= (this.difficultyKey === 'easy' ? 4 : 2) && this.rng.chance(assistRate)
+      ? this.rng.range(1, maxA + 1) : 0;
     let best: { map: TileMap; res: SolvabilityResult; score: number } | null = null;
     let attempts = 0, valid = 0;
     for (; attempts < 60 && valid < candidates; attempts++) {
-      const want = this.rng.chance((0.25 + 0.25 * maxA) * (this.difficultyKey === 'normal' ? 0.5 : 1)) ? this.rng.range(1, maxA + 1) : 0;
-      const r = this.candidate({ ...params, assisted: maxA ? want : 0, pocket: pocket && attempts < 45 });
+      const r = this.candidate({ ...params, assisted: attempts < 50 ? want : 0, pocket: pocket && attempts < 45 });
       if (!r) continue;
       valid++;
-      const s = this.funScore(r.map, r.res, want);
+      const s = this.funScore(r.map, r.res, want) + (want && r.res.enemyAssistedGold ? 1000 : 0);
       if (!best || s > best.score) best = { ...r, score: s };
     }
     let fallback: 0 | 1 | 2 = 0;
@@ -585,7 +589,8 @@ export class LevelGenerator {
     const corridorGold = new Set<string>();
     const ledges: P[][] = [];
     const spawnX = new Map<string, number>();
-    for (let k = p.assisted; k > 0; k--) {
+    // several placement tries per slot: a single random spot is often blocked by the level's top floor
+    for (let k = p.assisted, tries = 0; k > 0 && tries < 10; tries++) {
       if (rng.chance(0.45) && top >= 6) {
         const y = rng.range(2, top - 3), len = rng.range(5, 9), dir = rng.chance(0.5) ? 1 : -1;
         const lx = rng.range(2, W - len - 2); // passage cells lx..lx+len-1
@@ -604,6 +609,7 @@ export class LevelGenerator {
         corridorGold.add(`${gold.x},${gold.y}`);
         spawnX.set(`${gold.x},${gold.y}`, chim);
         m.corridorGoldPositions.push({ ...gold, sx: chim });
+        k--;
         continue;
       }
       const ly = top - rng.range(2, 4), len = rng.range(3, 6), lx = rng.range(1, W - len - 1);
@@ -615,6 +621,7 @@ export class LevelGenerator {
       for (let x = lx; x < lx + len; x++) { set(x, ly, T.BRICK_HARD); cells.push({ x, y: ly }); }
       ledges.push(cells);
       assisted.push({ x: lx + rng.range(0, len), y: ly - 1 });
+      k--;
     }
 
     // player start on the ground

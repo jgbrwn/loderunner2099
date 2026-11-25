@@ -219,7 +219,7 @@ export class MoveGraph {
 }
 
 export function maxEnemyAssistedGold(difficultyKey: string): number {
-  return ({ easy: 0, normal: 1, hard: 1, ninja: 2 } as Record<string, number>)[difficultyKey] ?? 0;
+  return ({ easy: 1, normal: 1, hard: 1, ninja: 2 } as Record<string, number>)[difficultyKey] ?? 0;
 }
 
 /**

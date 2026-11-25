@@ -202,13 +202,20 @@ describe('sim', () => {
       'P...$...E.',
       '##########',
       '==========',
-    ]), { seed: 3 });
+    ]), { seed: 3, holeTime: 3 } /* long enough to climb out before the refill */);
     w.started = true;
     (w as any).openHole(2, 2, 0);
     const log: SimEvent[] = [];
     run(w, 200, NO_INPUT, log);
     expect(log.some(e => e.t === 'guardGold')).toBe(true);
     expect(log.some(e => e.t === 'goldDrop' && e.x === 2 && e.y === 1)).toBe(true);
+    // ...and does not grab it straight back while climbing out of the hole
+    const g = w.guards[0];
+    for (let i = 0; i < 1500 && !(g.mode !== 'trapped' && g.cy < 2); i++) run(w, 1, NO_INPUT, log);
+    expect(g.cy).toBeLessThan(2);
+    run(w, 30, NO_INPUT, log);
+    expect(g.carry).toBe(-1);
+    expect(w.goldAt(2, 1)).toBeTruthy();
   });
 
   it('enemy-assisted gold is fetched and dropped at a player-reachable spot', () => {

@@ -368,10 +368,12 @@ export class World {
     const hole = this.holeAt(g.cx, g.cy);
     this.emit({ t: 'trap', g: g.id, x: g.cx, y: g.cy });
     this.addScore(hole ? hole.by : 0, SCORE.TRAP);
-    if (g.carry >= 0 && this.tile(g.cx, g.cy - 1) === T.EMPTY && !this.goldAt(g.cx, g.cy - 1) && this.reach[g.cy - 1]?.[g.cx]) {
+    // Classic rule: a trapped guard always lets go of its gold on top of the hole. The digger stood right next to
+    // that cell, so it is reachable for them even when it isn't one of the generator's vetted drop cells.
+    if (g.carry >= 0 && g.cy > 0 && this.tile(g.cx, g.cy - 1) === T.EMPTY && !this.goldAt(g.cx, g.cy - 1)) {
       const gold = this.golds[g.carry];
       gold.carriedBy = -1; gold.spawnX = undefined; gold.x = g.cx; gold.y = g.cy - 1;
-      g.carry = -1;
+      g.carry = -1; g.noPickX = gold.x; g.noPickY = gold.y; // don't snatch it back while climbing out
       this.emit({ t: 'goldDrop', g: g.id, x: gold.x, y: gold.y });
     }
   }
