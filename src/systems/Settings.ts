@@ -31,6 +31,9 @@ export const Settings = {
   set remoteSideways(v: boolean) { set('remoteSideways', v ? '1' : '0'); },
   get idleRadio(): 'off' | 'rp' | 'soma' { const v = get('idleRadio'); return v === '1' || v === 'rp' ? 'rp' : v === 'soma' ? 'soma' : 'off'; },
   set idleRadio(v: 'off' | 'rp' | 'soma') { set('idleRadio', v); },
+  /** practice mode: deaths never cost a life (single / co-op; runs never reach the high-score table) */
+  get unlimitedLives(): boolean { return get('unlimitedLives') === '1'; },
+  set unlimitedLives(v: boolean) { set('unlimitedLives', v ? '1' : '0'); },
   get lastSeed(): string { return get('lastSeed') ?? ''; },
   set lastSeed(v: string) { set('lastSeed', v); },
 };

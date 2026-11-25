@@ -17,7 +17,7 @@ import { TICK_MS, type SimEvent, type SimInput } from '../sim/types';
 import type { TVPairing, TVState } from '../platform/pairing';
 
 export type GameMode = 'single' | 'coop' | 'versus';
-export interface GameInitData { difficulty?: string; seed?: string; mode?: GameMode; tv?: boolean; players?: number }
+export interface GameInitData { difficulty?: string; seed?: string; mode?: GameMode; tv?: boolean; players?: number; unlimited?: boolean }
 
 /** One playfield: a World + its renderer + HUD. Single/co-op use one board; versus uses two (same level). */
 interface Board {
@@ -44,6 +44,8 @@ export class GameScene extends Phaser.Scene {
   private mode: GameMode = 'single';
   private tvMode = false;
   private lives = 3;
+  /** unlimited-lives (practice) mode: deaths cost nothing, the run never ends, no high-score entry */
+  private unlimited = false;
   private level = 1;
   private seedCode = '';
   private difficulty = 'normal';
@@ -79,6 +81,7 @@ export class GameScene extends Phaser.Scene {
     this.tvMode = !!data.tv;
     (window as any).LR2099TV?.setSinglePlayer?.(this.mode === 'single');
     this.lives = DIFFICULTIES[this.difficulty].lives;
+    this.unlimited = !!data.unlimited && this.mode !== 'versus';
     this.level = 1;
     this.gameOver = this.paused = this.transitioning = this.leaving = false;
     this.boards = [];
@@ -378,6 +381,7 @@ export class GameScene extends Phaser.Scene {
         sm.playDeath(); sm.stinger('death');
         tv?.rumble(slot(e.p), 300); tv?.event('death', slot(e.p));
         if (this.mode === 'versus') { this.showMessage(`P${slot(e.p) + 1} DOWN`, 1000); break; }
+        if (this.unlimited) { if (b.world.players.some(p => p.alive)) this.showMessage(`P${e.p + 1} DOWN`, 1000); break; }
         this.lives--;
         if (this.lives <= 0) this.endGame();
         else if (b.world.players.some(p => p.alive)) this.showMessage(`P${e.p + 1} DOWN  LIVES: ${this.lives}`, 1200);
@@ -385,7 +389,7 @@ export class GameScene extends Phaser.Scene {
       case 'failed':
         if (this.gameOver) break;
         b.waiting = true;
-        if (this.mode !== 'versus') { this.transitioning = true; this.showMessage(`LIVES: ${this.lives}`, 1500); }
+        if (this.mode !== 'versus') { this.transitioning = true; this.showMessage(this.unlimited ? 'TRY AGAIN' : `LIVES: ${this.lives}`, 1500); }
         this.time.delayedCall(1500, () => {
           if (this.leaving || !b.waiting || !this.boards.includes(b)) return;
           this.startWorld(b);
@@ -433,8 +437,8 @@ export class GameScene extends Phaser.Scene {
       this.time.delayedCall(2750, () => { if (this.leaving) return; this.level++; this.newLevel(); });
       return;
     }
-    this.lives++;
-    this.showMessage(`LEVEL ${this.level} COMPLETE!\n\n+1500 BONUS\n+1 LIFE!`, 2000);
+    if (!this.unlimited) this.lives++;
+    this.showMessage(`LEVEL ${this.level} COMPLETE!\n\n+1500 BONUS${this.unlimited ? '' : '\n+1 LIFE!'}`, 2000);
     this.level++;
     this.time.delayedCall(1100, () => b.view.playOutro(this.now));
     this.time.delayedCall(2150, () => { if (!this.leaving) this.newLevel(); });
@@ -524,9 +528,9 @@ export class GameScene extends Phaser.Scene {
         if (t) t.setText(`P${p + 1}  ${String(b.scores[p]).padStart(6, '0')}   ◆ ${base.goldTotal - base.goldLeft}/${base.goldTotal}   ★ ${b.wins}`);
         this.vsTexts[2]?.setText(`LV ${String(this.level).padStart(2, '0')}`);
       } else if (this.mode === 'coop') {
-        b.hud?.update({ ...base, score: b.scores[0], score2: b.scores[1], lives: this.lives });
+        b.hud?.update({ ...base, score: b.scores[0], score2: b.scores[1], lives: this.unlimited ? -1 : this.lives });
       } else {
-        b.hud?.update({ ...base, score: b.scores[0], lives: this.lives });
+        b.hud?.update({ ...base, score: b.scores[0], lives: this.unlimited ? -1 : this.lives });
       }
     }
   }
@@ -539,7 +543,7 @@ export class GameScene extends Phaser.Scene {
     const w = this.boards[0].world;
     const s: TVState & Record<string, unknown> = {
       screen: this.gameOver ? 'over' : this.menu ? 'pause' : 'play', mode: this.mode, level: this.level,
-      lives: this.mode === 'versus' ? undefined : this.lives, score: this.totalScore(),
+      lives: this.mode === 'versus' ? undefined : this.unlimited ? -1 : this.lives, score: this.totalScore(),
       gold: [w.golds.length - w.goldRemaining(), w.golds.length],
     };
     if (this.mode === 'versus') s.wins = this.boards.map(b => b.wins);

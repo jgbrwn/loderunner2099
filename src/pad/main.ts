@@ -145,7 +145,7 @@ function renderState(): void {
   const parts: string[] = [];
   if (s.screen && s.screen !== 'play') parts.push(String(s.screen).toUpperCase());
   if (s.level) parts.push(`LEVEL ${s.level}`);
-  if (s.lives !== undefined) parts.push(`♥${s.lives}`);
+  if (s.lives !== undefined) parts.push(`♥${s.lives < 0 ? '∞' : s.lives}`);
   if (s.gold) parts.push(`◆${s.gold[0]}/${s.gold[1]}`);
   if (s.score !== undefined) parts.push(`${s.score}`);
   $('info').textContent = parts.join('  ');

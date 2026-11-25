@@ -75,9 +75,10 @@ export class Hud {
     t.score.setText(String(d.score).padStart(7, '0'));
     // lives
     let x = 150;
-    const shown = d.lives < 0 ? 0 : d.lives > 7 ? 1 : Math.max(0, d.lives);
+    // lives < 0 = unlimited (practice mode): one icon + ∞
+    const shown = d.lives < 0 ? 1 : d.lives > 7 ? 1 : Math.max(0, d.lives);
     for (let i = 0; i < shown; i++) icon(d.livesIcon ?? 'life_p1', x + i * 14, cy);
-    t.livesX.setPosition(x + shown * 14 + 2, cy).setText(d.lives > 7 ? 'x' + d.lives : d.lives === 0 ? '--' : '');
+    t.livesX.setPosition(x + shown * 14 + 2, cy).setText(d.lives < 0 ? '∞' : d.lives > 7 ? 'x' + d.lives : d.lives === 0 ? '--' : '');
     t.levelL.setText('LV'); t.level.setText(String(d.level).padStart(2, '0'));
     t.goldL.setText('GOLD');
     // gold pips (collected = lit)

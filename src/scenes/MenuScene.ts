@@ -124,9 +124,15 @@ export class MenuScene extends Phaser.Scene {
       label: d.toUpperCase(),
       act: () => this.start(mode, d, seed),
     }));
+    if (mode !== 'versus') items.push(this.livesItem());
     items.push({ label: 'BACK', act: () => this.ui!.back(), cls: 'dim' });
     const title = mode === 'single' ? 'DIFFICULTY' : mode === 'coop' ? 'CO-OP · DIFFICULTY' : 'VERSUS · DIFFICULTY';
     return { title, items, focus: Math.max(0, DIFFS.indexOf(this.diff)) };
+  }
+
+  private livesItem(): Item {
+    return { label: 'LIVES', value: () => (Settings.unlimitedLives ? 'UNLIMITED ∞' : 'CLASSIC'),
+      cycle: () => { Settings.unlimitedLives = !Settings.unlimitedLives; } };
   }
 
   private seedPage(): Page {
@@ -139,6 +145,7 @@ export class MenuScene extends Phaser.Scene {
       items: [
         { label: 'SEED', input: inp },
         { label: 'DIFFICULTY', value: () => this.diff.toUpperCase(), cycle: d => { this.diff = DIFFS[(DIFFS.indexOf(this.diff) + d + 4) % 4]; } },
+        this.livesItem(),
         { label: 'START', cls: 'accent', act: () => this.start('single', this.diff, this.seed || undefined) },
         { label: 'COPY LINK', visible: has, act: () => this.copyLink() },
         { label: 'SHARE…', visible: () => has() && !!navigator.share, act: () => {
@@ -320,7 +327,7 @@ export class MenuScene extends Phaser.Scene {
     this.ui?.root.style.setProperty('transition', 'opacity .25s');
     if (this.ui) this.ui.root.style.opacity = '0';
     this.cameras.main.fadeOut(250, 0, 0, 0);
-    this.time.delayedCall(260, () => this.scene.start('GameScene', { difficulty, seed: s, mode, tv: isTV() }));
+    this.time.delayedCall(260, () => this.scene.start('GameScene', { difficulty, seed: s, mode, tv: isTV(), unlimited: mode !== 'versus' && Settings.unlimitedLives }));
   }
 
   /** ?seed=XXX&diff=normal[&mode=coop|versus][&p=2] starts that game once per page load. */
