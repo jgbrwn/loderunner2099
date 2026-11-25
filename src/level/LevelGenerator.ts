@@ -304,27 +304,61 @@ export class LevelGenerator {
     }
     const escapeCells: P[] = [];       // gold in a drop-in / dig-out floor pit
     const pitCells: P[] = [];
-    const rail = (x0: number, y: number, dir: number, maxLen: number, needCeil: boolean): number => {
-      let n = 0;
-      for (let x = x0; n < maxLen && x >= 0 && x < W; x += dir, n++) {
+    // PURPOSE CHECK. In the originals ~57% of pole runs connect two places that are otherwise unconnected (33%)
+    // or only connected by a long detour (24%); only ~16% are "trivial" (both ends already a short walk apart).
+    // Ours were 50% trivial. Every candidate run is now tested on the move graph (no digging) without it:
+    // where does each end lead (the cell beyond it, or where you land if you drop off), and how far apart are
+    // those two places without the bar? LINK / detour runs are kept, trivial ones only rarely.
+    const DIRS_TRIVIAL_KEEP = 0.2;
+    const landAt = (x: number, y: number): number => {
+      if (x < 0 || x >= W || isBrick(x, y)) return -1;
+      let yy = y;
+      while (yy + 1 < H && get(x, yy) !== T.LADDER && get(x, yy) !== T.POLE && get(x, yy + 1) !== T.LADDER && !isBrick(x, yy + 1)) yy++;
+      return yy * W + x;
+    };
+    const purposeOf = (cells: P[]): 'link' | 'detour' | 'trivial' | 'deadend' => {
+      const y = cells[0].y, a = Math.min(...cells.map(c => c.x)), b = Math.max(...cells.map(c => c.x));
+      const A = landAt(a - 1, y), B = landAt(b + 1, y);
+      if (A < 0 || B < 0) return 'deadend';
+      const gr = new MoveGraph(m, false), N2 = 2 * W * H;
+      const dA = new Int16Array(N2).fill(-1), dB = new Int16Array(N2).fill(-1);
+      gr.bfs([A], true, undefined, dA); gr.bfs([B], true, undefined, dB);
+      if (dA[B] < 0 || dB[A] < 0) return 'link';
+      return Math.max(dA[B], dB[A]) > 2 * (b - a + 1) + 6 ? 'detour' : 'trivial';
+    };
+    const tryPole = (cells: P[], deadendKeep = 0.5): boolean => {
+      if (cells.length < 2) return false;
+      const k = purposeOf(cells);
+      const keep = k === 'link' || k === 'detour' || (k === 'deadend' && rng.chance(deadendKeep)) || (k === 'trivial' && rng.chance(DIRS_TRIVIAL_KEEP));
+      if (keep) for (const c of cells) set(c.x, c.y, T.POLE);
+      return keep;
+    };
+    const railCells = (x0: number, y: number, dir: number, maxLen: number, needCeil: boolean): P[] => {
+      const cells: P[] = [];
+      for (let x = x0; cells.length < maxLen && x >= 0 && x < W; x += dir) {
         if (get(x, y) !== T.EMPTY || get(x, y + 1) !== T.EMPTY || get(x, y - 1) === T.LADDER) break;
-        if (needCeil && n < 2 && !isBrick(x, y - 1)) break;
+        if (needCeil && cells.length < 2 && !isBrick(x, y - 1)) break;
+        cells.push({ x, y });
       }
-      if (n < 3) return 0;
-      for (let k = 0, x = x0; k < n; k++, x += dir) set(x, y, T.POLE);
-      return n;
+      return cells;
+    };
+    // a rail is tried at its full length first, then shorter (a shorter bar may end over a different landing)
+    const rail = (x0: number, y: number, dir: number, maxLen: number, needCeil: boolean): number => {
+      const cells = railCells(x0, y, dir, maxLen, needCeil);
+      for (let n = cells.length; n >= 3; n -= rng.range(1, 3)) if (tryPole(cells.slice(0, n), 0.15)) return n;
+      return 0;
     };
     // bridges across gaps (at standing height)
     for (const [fy, gaps] of gapsByFloor) for (const [a, b] of gaps) {
-      if (b - a >= 1 && rng.chance(0.5)) {
+      if (b - a >= 1 && rng.chance(0.8)) {
         let ok = true;
         for (let x = a; x <= b; x++) if (get(x, fy - 1) !== T.EMPTY) ok = false;
-        if (ok) for (let x = a; x <= b; x++) set(x, fy - 1, T.POLE);
+        if (ok) { const cells: P[] = []; for (let x = a; x <= b; x++) cells.push({ x, y: fy - 1 }); tryPole(cells); }
       }
     }
     // ceiling rails: off a ladder, directly under the floor it comes down from
     for (const lx of rng.shuffle(ladderCols.slice())) {
-      if (!rng.chance(0.3 + 0.2 * p.c)) continue;
+      if (!rng.chance(0.5 + 0.3 * p.c)) continue;
       for (let y = top + 1; y < H - 2; y++) {
         if (get(lx, y) !== T.LADDER) continue;
         const dir = rng.chance(0.5) ? 1 : -1;
@@ -341,13 +375,32 @@ export class LevelGenerator {
           if (get(a, y) !== T.LADDER || get(b, y) !== T.LADDER) continue;
           let ok = true;
           for (let x = a + 1; x < b && ok; x++) if (get(x, y) !== T.EMPTY || get(x, y + 1) !== T.EMPTY) ok = false;
-          if (ok) { for (let x = a + 1; x < b; x++) set(x, y, T.POLE); break outer; }
+          if (ok) { const cells: P[] = []; for (let x = a + 1; x < b; x++) cells.push({ x, y }); if (tryPole(cells)) break outer; }
         }
       }
     }
+    // LEDGE LINKS: from the open edge of a floor segment, a bar at standing height across open air to a ladder
+    // (or another ledge) — the classic way to reach a section from the side (orig levels 7, 12, 23...)
+    for (const sg of rng.shuffle(segs.slice())) {
+      if (!rng.chance(0.7 + 0.3 * p.c)) continue;
+      const y = sg.y - 1;
+      if (y <= top - 1 || y < 1) continue;
+      for (const dir of rng.shuffle([-1, 1])) {
+        const x0 = dir > 0 ? sg.x1 + 1 : sg.x0 - 1;
+        const cells: P[] = [];
+        let hit = false;
+        for (let x = x0; x >= 0 && x < W && cells.length <= 12; x += dir) {
+          const t = get(x, y);
+          if (t === T.LADDER || (t === T.EMPTY && isBrick(x, y + 1))) { hit = true; break; }
+          if (t !== T.EMPTY || get(x, y + 1) !== T.EMPTY || get(x, y - 1) === T.LADDER) break;
+          cells.push({ x, y });
+        }
+        if (hit && cells.length >= 3 && tryPole(cells, 0)) break;
+      }
+    }
     // hanging poles off ladders mid-climb (free end = drop-off point)
-    for (let k = rng.range(2, 4 + Math.round(p.c * 3)); k > 0; k--) {
-      for (let tries = 0; tries < 8; tries++) {
+    for (let k = rng.range(3, 5 + Math.round(p.c * 3)); k > 0; k--) {
+      for (let tries = 0; tries < 14; tries++) {
         const lx = rng.pick(ladderCols.length ? ladderCols : [0]);
         const r = rng.range(top + 1, H - 2);
         if (get(lx, r) !== T.LADDER) continue;
@@ -368,8 +421,8 @@ export class LevelGenerator {
         if (!ok) continue;
         for (let y = r; y < f; y++) set(lx, y, T.LADDER);
         const dir = rng.chance(0.5) ? 1 : -1;
-        if (!rail(lx + dir, r, dir, rng.range(3, 9), false)) rail(lx - dir, r, -dir, rng.range(3, 9), false);
-        break;
+        if (rail(lx + dir, r, dir, rng.range(3, 9), false) || rail(lx - dir, r, -dir, rng.range(3, 9), false)) break;
+        for (let y = r; y < f; y++) set(lx, y, T.EMPTY); // spur without a purposeful rail: take it back
       }
     }
 
@@ -578,6 +631,24 @@ export class LevelGenerator {
         for (let i = 0; i < row.length;) {
           let j = i;
           while (j + 1 < row.length && row[j + 1].x === row[j].x + 1) j++;
+          // SECTION LINK BY POLE (the classic idiom): instead of a ladder down, hang a bar from the region's edge
+          // across open air to a ladder / standing cell that is already connected to the start.
+          if (rng.chance(0.6)) {
+            let linked = false;
+            for (const [x0, dir] of rng.shuffle([[row[i].x - 1, -1], [row[j].x + 1, 1]] as [number, number][])) {
+              const cells: P[] = [];
+              let hit = false;
+              for (let x = x0; x >= 0 && x < W && cells.length <= 12; x += dir) {
+                const t = get(x, yy), ci = yy * W + x;
+                if (t === T.LADDER && comp[ci] === main) { hit = true; break; }
+                if (t === T.EMPTY && isBrick(x, yy + 1)) { hit = comp[ci] === main; break; }
+                if (t !== T.EMPTY || get(x, yy + 1) !== T.EMPTY || get(x, yy - 1) === T.LADDER) break;
+                cells.push({ x, y: yy });
+              }
+              if (hit && cells.length >= 2) { for (const c of cells) set(c.x, c.y, T.POLE); linked = true; placed++; break; }
+            }
+            if (linked) { i = j + 1; continue; }
+          }
           const c = row[rng.range(i, j + 1)];
           let near = false;
           for (let dy = 0; dy < 4; dy++) for (const dx of [-1, 1]) if (get(c.x + dx, c.y + dy) === T.LADDER) near = true;
@@ -586,6 +657,27 @@ export class LevelGenerator {
         }
       }
       if (!placed) iter = 9;
+    }
+    // Later stages (repair ladders, vaults, masses) can make a pole pointless after the fact. Re-check every
+    // run on the finished layout; drop the trivial ones (keep a few, like the originals) when doing so loses
+    // no standing room from the start's component.
+    {
+      const sccSize = (cc: Int32Array) => { let n = 0; const mc = cc[start]; for (let i = 0; i < W * H; i++) if (cc[i] === mc) n++; return n; };
+      let base = sccSize(comp), changed = false;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (get(x, y) !== T.POLE || get(x - 1, y) === T.POLE) continue;
+        const cells: P[] = [];
+        for (let xx = x; get(xx, y) === T.POLE; xx++) cells.push({ x: xx, y });
+        for (const c of cells) set(c.x, c.y, T.EMPTY);
+        const k = purposeOf(cells);
+        let keep = k !== 'trivial' || rng.chance(DIRS_TRIVIAL_KEEP);
+        if (!keep) {
+          const g2 = new MoveGraph(m, false), c2 = g2.scc();
+          if (sccSize(c2) < base - cells.length) keep = true; else { base = sccSize(c2); changed = true; }
+        }
+        if (keep) for (const c of cells) set(c.x, c.y, T.POLE);
+      }
+      if (changed) { g = new MoveGraph(m, false); comp = g.scc(); reach = g.bfs([start]); }
     }
     const main = comp[start];
 
