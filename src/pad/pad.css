@@ -41,3 +41,6 @@ body.flash{animation:fl .25s}
  .acts{width:min(46vw,280px);height:min(40vw,240px)}
 }
 .mid .row{display:flex;gap:8px;justify-content:center}
+
+.kbd{font-size:11px;color:#8af;text-align:center;max-width:22em;margin:6px auto;line-height:1.5}
+.tbtn.kon{filter:brightness(1.6)}

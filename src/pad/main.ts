@@ -5,7 +5,7 @@ import { PAD_BITS } from '../platform/padBits';
 import { keepAwake } from '../platform/wakeLock';
 import { initPWA, isStandalone } from '../platform/pwa';
 import { lockGestures } from '../platform/mobile';
-import type { Action } from '../input/InputManager';
+import { DEFAULT_BINDINGS, type Action } from '../input/InputManager';
 
 initPWA();
 lockGestures();
@@ -62,12 +62,13 @@ function goFull(): void {
 }
 document.addEventListener('pointerdown', function first() {
   document.removeEventListener('pointerdown', first, true);
-  if (active) goFull();
+  if (active && !DESKTOP) goFull();
 }, true);
 
 function start(): void {
   active = true; retry = 0; slot = 0;
   $('join').hidden = true; $('ctl').hidden = false;
+  (document.activeElement as HTMLElement | null)?.blur?.(); // keyboard play: no focused button to trigger
   setWho(Number(wantSlot));
   connect();
 }
@@ -175,6 +176,34 @@ const actA = $('actA'), actB = $('actB');
 makeButton(actA, d => hold(inPlay ? 'digLeft' : 'back', d));
 makeButton(actB, d => hold(inPlay ? 'digRight' : 'confirm', d));
 renderState();
+
+// KEYBOARD (a computer opened /pad): same keys as the desktop game, sent to the TV as pad bits.
+// Always active (also helps tablets with a keyboard); the legend only shows on non-touch devices.
+const DESKTOP = !matchMedia('(pointer: coarse)').matches; // phones & tablets report a coarse primary pointer
+$('kbd').hidden = $('kbdJoin').hidden = !DESKTOP;
+const KEYMAP = new Map<string, Action>();
+for (const [a, codes] of Object.entries(DEFAULT_BINDINGS[0]) as [Action, string[]][]) for (const c of codes) if (!KEYMAP.has(c)) KEYMAP.set(c, a);
+const keysDown = new Map<string, Action>();
+const btnFor = (a: Action): HTMLElement | null => a === 'digLeft' || a === 'back' && !inPlay ? actA : a === 'digRight' || a === 'confirm' && !inPlay ? actB
+  : document.querySelector<HTMLElement>(`.sys .tbtn[data-a="${a}"]`);
+function keyBits(): void {
+  let b = 0;
+  for (const a of keysDown.values()) b |= PAD_BITS[a];
+  for (const el of Array.from(document.querySelectorAll('.tbtn.kon'))) el.classList.remove('kon');
+  for (const a of keysDown.values()) btnFor(a)?.classList.add('kon');
+  setBits(b);
+}
+const onKey = (down: boolean) => (e: KeyboardEvent) => {
+  if (!active || (e.target as HTMLElement | null)?.tagName === 'INPUT' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const a = KEYMAP.get(e.code);
+  if (!a) return;
+  e.preventDefault();
+  if (down) { if (e.repeat && keysDown.has(e.code)) return; keysDown.set(e.code, a); } else keysDown.delete(e.code);
+  keyBits();
+};
+addEventListener('keydown', onKey(true));
+addEventListener('keyup', onKey(false));
+addEventListener('blur', () => { keysDown.clear(); keyBits(); });
 
 // "Sound on phone" (opt-in; audio normally plays on the TV only): tiny WebAudio SFX for TV events.
 let padSound = ls('lr2099.padSound') === '1';

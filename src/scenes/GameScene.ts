@@ -28,7 +28,6 @@ interface Board {
   acc: number;
   waiting: boolean;   // failed, restart pending
   wins: number;       // versus round wins
-  trapHint?: boolean; // last-gold-section hint shown for this attempt
 }
 
 type MenuItem = { label: () => string; act?: () => void; adj?: (d: number) => void };
@@ -174,7 +173,6 @@ export class GameScene extends Phaser.Scene {
     });
     b.acc = 0;
     b.waiting = false;
-    b.trapHint = false;
     if (!this.boards.some(o => o !== b && o.world?.exitsRevealed)) getSoundManager().setEscape(false);
     b.view.setWorld(b.world, this.now);
   }
@@ -564,17 +562,6 @@ export class GameScene extends Phaser.Scene {
     const diff = DIFFICULTIES[this.difficulty].name;
     for (const b of this.boards) {
       const w = b.world;
-      // LAST-GOLD SECTION: walked into the drop-in room while gold is still left outside it -> you're stuck
-      // until you restart (the room's ladder only appears with the last gold). Say so once per attempt.
-      const r = this.levelMap?.lastSection;
-      if (r && !b.trapHint && !w.exitsRevealed && !this.transitioning && this.mode !== 'versus') {
-        const inRoom = (x: number, y: number) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1;
-        const p = w.players.find(q => q.alive && inRoom(q.cx, q.cy));
-        if (p && w.golds.some(gd => !gd.collected && !inRoom(gd.x, gd.y))) {
-          b.trapHint = true;
-          this.showMessage(`${w.players.length > 1 ? `P${p.id + 1} ` : ''}TRAPPED!\nTHIS ROOM'S GOLD GOES LAST\n\nPAUSE ▸ RESTART LEVEL`, 3000);
-        }
-      }
       const base = { level: this.level, goldTotal: w.golds.length, goldLeft: w.goldRemaining(), difficulty: diff, seed: this.seedCode, music };
       if (this.mode === 'versus') {
         const p = b.inputs[0];
