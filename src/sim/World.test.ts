@@ -234,3 +234,56 @@ describe('enemy-assisted gold on generated levels', () => {
     expect(delivered).toBeGreaterThan(0);
   });
 });
+
+describe('last-gold section', () => {
+  // drop-in room (hard walls) whose only way out is the hidden ladder in its mouth shaft
+  const room = () => {
+    const m = mapFrom([
+      '..........',
+      '..........',
+      '..P.......',
+      '#####.====',
+      '=.....=...',
+      '=$....=...',
+      '==========',
+    ]);
+    for (let y = 0; y <= 5; y++) m.exitLadders.push({ x: 5, y });
+    return m;
+  };
+  it('falling in before the rest of the gold leaves you stuck; last gold opens the shaft ladder out', () => {
+    const w = new World(room(), { seed: 't', players: 1 });
+    const log: SimEvent[] = [];
+    run(w, 120, inp({ right: true }), log);
+    expect([w.players[0].cx, w.players[0].cy]).toEqual([5, 5]);
+    run(w, 120, inp({ up: true }), log);
+    expect(w.players[0].cy).toBe(5);              // no way up yet
+    run(w, 160, inp({ left: true }), log);        // grab the (last) gold
+    expect(log.some(e => e.t === 'exitReveal')).toBe(true);
+    run(w, 160, inp({ right: true }), log);
+    run(w, 300, inp({ up: true }), log);
+    expect(log.some(e => e.t === 'complete')).toBe(true);
+  });
+  it('generator: forced last sections are one-way rooms with a hidden ladder escape and stay solvable', async () => {
+    const { DIFFICULTIES } = await import('../config');
+    const { analyzeLevel, MoveGraph } = await import('../level/SolvabilityChecker');
+    const keep = DIFFICULTIES.normal.lastSection;
+    DIFFICULTIES.normal.lastSection = 1;
+    try {
+      let built = 0;
+      for (let s = 0; s < 12; s++) {
+        const m = new LevelGenerator(`LS${s}`, 'normal', 5).generate();
+        expect(analyzeLevel(m, m.enemyAssistedGoldPositions).solvable).toBe(true);
+        const r = m.lastSection;
+        if (!r) continue;
+        built++;
+        const W = m.width, start = m.playerStart.y * W + m.playerStart.x, inside = r.y1 * W + (r.mx === r.x1 ? r.x0 : r.x1);
+        expect(m.goldPositions.some(g => g.x >= r.x0 && g.x <= r.x1 && g.y === r.y1)).toBe(true);
+        const g = new MoveGraph(m, false);
+        expect(g.bfs([start])[inside]).toBe(1);         // you can drop in
+        expect(g.bfs([inside])[start]).toBe(0);         // ...but not get back out
+        expect(new MoveGraph(m, true).bfs([inside])[start]).toBe(1); // until the ladder shows
+      }
+      expect(built).toBeGreaterThan(8);
+    } finally { DIFFICULTIES.normal.lastSection = keep; }
+  });
+});

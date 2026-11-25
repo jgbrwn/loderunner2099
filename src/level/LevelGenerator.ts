@@ -35,7 +35,7 @@ export const GENERATOR_VERSION = 2;
 const T = TileType;
 type P = { x: number; y: number };
 
-interface Params { c: number; ld: number; trap: number; assisted: number; }
+interface Params { c: number; ld: number; trap: number; assisted: number; pocket?: boolean; }
 
 export class LevelGenerator {
   private rng: SeededRandom;
@@ -73,11 +73,14 @@ export class LevelGenerator {
       trap: d.trapBrickChance,
       assisted: maxA,
     };
+    // LAST-GOLD SECTION is decided per level (all candidates share it, so best-of-N doesn't filter it out).
+    // Not on the first levels of easy / normal.
+    const pocket = this.levelNumber >= (d.lastSection <= 0.1 ? 3 : 2) && this.rng.chance(d.lastSection);
     let best: { map: TileMap; res: SolvabilityResult; score: number } | null = null;
     let attempts = 0, valid = 0;
     for (; attempts < 60 && valid < candidates; attempts++) {
       const want = this.rng.chance(0.25 + 0.25 * maxA) ? this.rng.range(1, maxA + 1) : 0;
-      const r = this.candidate({ ...params, assisted: maxA ? want : 0 });
+      const r = this.candidate({ ...params, assisted: maxA ? want : 0, pocket: pocket && attempts < 45 });
       if (!r) continue;
       valid++;
       const s = this.funScore(r.map, r.res, want);
@@ -679,6 +682,55 @@ export class LevelGenerator {
       }
       if (changed) { g = new MoveGraph(m, false); comp = g.scc(); reach = g.bfs([start]); }
     }
+
+    // LAST-GOLD SECTION (originals ~7% of levels: 8, 46, 58, 96, 113, 123...). A room under the end of a floor
+    // that you can only drop into (mouth = a 1-wide shaft past the floor's edge; hard walls and floor, so no
+    // digging out). Its gold can't be the first you take — go in early and you're stuck. Take it last and the
+    // escape ladder appears right there, rising from the room's floor up the shaft you fell down.
+    let pocketLadder: P[] = [], pocketGold: P[] = [];
+    if (p.pocket) {
+      const mainOf = (cc: Int32Array, gr: MoveGraph) => { const o: number[] = []; const mc = cc[start];
+        for (let i = 0; i < N; i++) if (cc[i] === mc && gr.stable(i % W, (i / W) | 0) && get(i % W, (i / W) | 0) === T.EMPTY) o.push(i); return o; };
+      const before = mainOf(comp, g);
+      let ok = false;
+      for (let tries = 0; tries < 80 && !ok; tries++) {
+        const sg = rng.pick(segs), f = sg.y, h = rng.range(2, 4), fy = f + h + 1, dir = rng.chance(0.5) ? 1 : -1;
+        const mx = dir > 0 ? sg.x1 + 1 : sg.x0 - 1, w = rng.range(3, 7);
+        if (f < top || fy > H - 1 || mx < 1 || mx > W - 2 || w - 1 > sg.x1 - sg.x0 + 1) continue;
+        const xa = dir > 0 ? mx - w + 1 : mx, xb = dir > 0 ? mx : mx + w - 1;      // interior columns
+        const xi = dir > 0 ? xa - 1 : xb + 1, xo = mx + dir;                      // inner / outer wall
+        if (Math.min(xi, xo) < 0 || Math.max(xi, xo) >= W) continue;
+        if (get(mx, f) !== T.EMPTY || get(mx, f - 1) !== T.EMPTY || reserved[mx]) continue;
+        const inner: P[] = [], walls: P[] = [];
+        for (let y = f + 1; y <= f + h; y++) for (let x = xa; x <= xb; x++) inner.push({ x, y });
+        for (let y = f + 1; y <= f + h; y++) walls.push({ x: xi, y });
+        for (let y = f; y <= f + h; y++) walls.push({ x: xo, y });
+        for (let x = Math.min(xi, xo); x <= Math.max(xi, xo); x++) walls.push({ x, y: fy });
+        const okT = (q: P, allow: TileType[]) => allow.includes(get(q.x, q.y));
+        if (!inner.every(q => okT(q, [T.EMPTY, T.BRICK])) || !walls.every(q => okT(q, [T.EMPTY, T.BRICK, T.BRICK_HARD]))) continue;
+        if (pitCells.some(q => inner.some(c => c.x === q.x && c.y === q.y))) continue;
+        const saved = [...inner, ...walls].map(q => ({ ...q, t: get(q.x, q.y) }));
+        for (const q of inner) set(q.x, q.y, T.EMPTY);
+        for (const q of walls) set(q.x, q.y, T.BRICK_HARD);
+        const ladder: P[] = [];
+        for (let y = f; y <= f + h; y++) ladder.push({ x: mx, y });
+        const g2 = new MoveGraph(m, false), c2 = g2.scc(), r2 = g2.bfs([start]);
+        const inside = (f + h) * W + (dir > 0 ? xa : xb);   // far corner of the room floor
+        const lostCells = before.filter(i => c2[i] !== c2[start] && !inner.some(q => q.y * W + q.x === i));
+        // small dead corners that become unreachable are fine; nothing may become a one-way trap by accident
+        const lost = lostCells.length > 4 || lostCells.some(i => r2[i]);
+        let good = !lost && !!r2[inside] && !g2.bfs([inside])[start];
+        if (good) { m.exitLadders = ladder; good = !!new MoveGraph(m, true).bfs([inside])[start]; m.exitLadders = []; }
+        if (!good) { for (const q of saved) set(q.x, q.y, q.t); continue; }
+        // 1-2 gold on the room's floor (never on the ladder column)
+        const spots = rng.shuffle(inner.filter(q => q.y === f + h && q.x !== mx));
+        pocketGold = spots.slice(0, w >= 5 && rng.chance(0.5) ? 2 : 1);
+        pocketLadder = ladder;
+        m.lastSection = { x0: xa, x1: xb, y0: f + 1, y1: f + h, mx };
+        g = g2; comp = c2; reach = r2; ok = true;
+      }
+      if (!ok) return null;
+    }
     const main = comp[start];
 
     // PLAYER START HEIGHT (originals: ~half start on the bottom floor, the rest anywhere up the screen,
@@ -717,7 +769,11 @@ export class LevelGenerator {
     }
     if (!exits.length) return null;
     const ex = rng.pick(exits);
-    for (let y = 0; y < top; y++) m.exitLadders.push({ x: ex, y });
+    // originals: ~28% of levels reveal 2+ hidden ladder columns (one each side, or one per tower)
+    const exCols = [ex];
+    if (rng.chance(0.25)) { const far = exits.filter(x => Math.abs(x - ex) >= 6); if (far.length) exCols.push(rng.pick(far)); }
+    for (const c of exCols) for (let y = 0; y < top; y++) m.exitLadders.push({ x: c, y });
+    m.exitLadders.push(...pocketLadder);
 
     // gold
     const noDig = g.bfs([start], true);
@@ -725,7 +781,7 @@ export class LevelGenerator {
     const digCand: P[] = [];
     for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (comp[i] !== main || get(x, y) !== T.EMPTY || !(isBrick(x, y + 1) || get(x, y + 1) === T.LADDER) || x === ex) continue;
+      if (comp[i] !== main || get(x, y) !== T.EMPTY || !(isBrick(x, y + 1) || get(x, y + 1) === T.LADDER) || exCols.includes(x)) continue;
       if (Math.abs(x - sx) + Math.abs(y - sy) < 3) continue;
       (noDig[i] ? cand : digCand).push({ x, y });
     }
@@ -736,6 +792,7 @@ export class LevelGenerator {
     // a pit you can fall into but not get out of (and back to the exit) would be a pure death trap
     if (pitCells.some(c => comp[c.y * W + c.x] !== main)) return null;
     // buried gold is the point of the mass: if the solver can't route in-and-out of it, reject the candidate
+    for (const q of pocketGold) chosen.push(q);
     for (const b of buriedGold) {
       if (comp[b.y * W + b.x] !== main) return null;
       chosen.push(b);
@@ -748,7 +805,7 @@ export class LevelGenerator {
       if (get(x, y) !== T.POLE) continue;
       for (const yy of [y + 1, y + 2]) {
         const i = yy * W + x;
-        if (comp[i] !== main || get(x, yy) !== T.EMPTY || x === ex) continue;
+        if (comp[i] !== main || get(x, yy) !== T.EMPTY || exCols.includes(x)) continue;
         if (!g.stable(x, yy)) { if (yy === y + 1 || get(x, y + 1) === T.EMPTY) floatGold.push({ x, y: yy }); }
         else if (isBrick(x, yy + 1)) underPole.push({ x, y: yy });
       }
@@ -810,7 +867,7 @@ export class LevelGenerator {
     const ecand: P[] = [];
     for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (i >= N || comp[i] !== main || !reach[i] || get(x, y) !== T.EMPTY || !g.stable(x, y) || x === ex || sealed.has(i)) continue;
+      if (i >= N || comp[i] !== main || !reach[i] || get(x, y) !== T.EMPTY || !g.stable(x, y) || exCols.includes(x) || sealed.has(i)) continue;
       if (Math.abs(x - sx) + Math.abs(y - sy) < 10) continue;
       ecand.push({ x, y });
     }

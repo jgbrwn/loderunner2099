@@ -79,6 +79,8 @@ export interface DifficultySettings {
   trapBrickChance: number;    // 0-1
   enemySpeed: number;         // multiplier
   holeTime: number;           // multiplier for hole duration
+  /** chance of a LAST-GOLD SECTION: a drop-in room you can't leave until its hidden ladder appears (originals ~7%) */
+  lastSection: number;
 }
 
 export const DIFFICULTIES: Record<string, DifficultySettings> = {
@@ -92,6 +94,7 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     trapBrickChance: 0.05,
     enemySpeed: 0.7,
     holeTime: 1.3,
+    lastSection: 0.05,
   },
   normal: {
     name: 'NORMAL',
@@ -103,6 +106,7 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     trapBrickChance: 0.1,
     enemySpeed: 1.0,
     holeTime: 1.0,
+    lastSection: 0.1,
   },
   hard: {
     name: 'HARD',
@@ -114,6 +118,7 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     trapBrickChance: 0.15,
     enemySpeed: 1.2,
     holeTime: 0.8,
+    lastSection: 0.15,
   },
   ninja: {
     name: 'NINJA',
@@ -125,6 +130,7 @@ export const DIFFICULTIES: Record<string, DifficultySettings> = {
     trapBrickChance: 0.2,
     enemySpeed: 1.4,
     holeTime: 0.6,
+    lastSection: 0.2,
   },
 };
 

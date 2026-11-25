@@ -16,6 +16,8 @@ export class TileMap {
   public enemyStarts: { x: number; y: number }[] = [];
   public goldPositions: { x: number; y: number }[] = [];
   public exitLadders: { x: number; y: number }[] = [];
+  /** LAST-GOLD SECTION: drop-in room (interior rect) whose only way out is a hidden ladder at column mx. */
+  public lastSection: { x0: number; x1: number; y0: number; y1: number; mx: number } | null = null;
   public holeDurationMultiplier: number = 1.0; // Set by difficulty
   
   // Gold positions that require enemy assistance to collect
@@ -49,6 +51,7 @@ export class TileMap {
     this.goldPositions = [];
     this.enemyStarts = [];
     this.exitLadders = [];
+    this.lastSection = null;
     this.enemyAssistedGoldPositions = [];
     this.enemyAssistedSpawns = [];
     this.corridorGoldPositions = [];
@@ -195,6 +198,7 @@ export class TileMap {
     copy.enemyStarts = this.enemyStarts.map(e => ({ ...e }));
     copy.goldPositions = this.goldPositions.map(g => ({ ...g }));
     copy.exitLadders = this.exitLadders.map(l => ({ ...l }));
+    copy.lastSection = this.lastSection ? { ...this.lastSection } : null;
     copy.enemyAssistedGoldPositions = this.enemyAssistedGoldPositions.map(g => ({ ...g }));
     copy.enemyAssistedSpawns = this.enemyAssistedSpawns.map(g => ({ ...g }));
     copy.goldDropCells = this.goldDropCells.map(g => ({ ...g }));
