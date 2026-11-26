@@ -1,13 +1,25 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
+
+func statsConfigured() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("STATS_ENABLED"))) {
+	case "0", "false", "off", "no", "disabled":
+		return false
+	default:
+		return true
+	}
+}
 
 func main() {
 	port := "8000"
@@ -20,7 +32,20 @@ func main() {
 	}
 	hub := NewHub(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","))
 	presence := NewPresence()
+	statsEnabled := statsConfigured()
+	var store *statsStore
+	if statsEnabled {
+		store = openStatsStore()
+		hub.store, presence.store = store, store
+		store.load(hub, presence)
+	}
 	go hub.janitor(30 * time.Second)
+	go func() {
+		sampleStats(hub, presence, time.Now())
+		for now := range time.Tick(30 * time.Second) {
+			sampleStats(hub, presence, now)
+		}
+	}()
 	radio := NewRadio(nil)
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -32,19 +57,41 @@ func main() {
 	}
 	// Owner-only dashboard on an alternate port. Alternate exe.dev proxy ports are
 	// authenticated for VM users; the dashboard is never mounted on the public game port.
-	statsPort := os.Getenv("STATS_PORT")
-	if statsPort == "" {
-		statsPort = "8001"
+	if statsEnabled {
+		statsPort := os.Getenv("STATS_PORT")
+		if statsPort == "" {
+			statsPort = "8001"
+		}
+		statsBind := os.Getenv("STATS_BIND")
+		if statsBind == "" {
+			statsBind = "0.0.0.0"
+		}
+		statsSrv := &http.Server{Addr: statsBind + ":" + statsPort, Handler: statsMux(hub, presence), ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			log.Printf("📊 Private stats: http://%s:%s/stats", statsBind, statsPort)
+			if err := statsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("stats server: %v", err)
+			}
+		}()
+	} else {
+		log.Printf("📊 Stats dashboard and presence collection disabled (STATS_ENABLED=false)")
 	}
-	statsSrv := &http.Server{Addr: ":" + statsPort, Handler: statsMux(hub, presence), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("🎮 Lode Runner 2099 server running on http://localhost:%s (serving %s)", port, distDir)
 	go func() {
-		log.Printf("📊 Private stats: http://localhost:%s/stats", statsPort)
-		if err := statsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("stats server: %v", err)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
 		}
 	}()
-	log.Printf("🎮 Lode Runner 2099 server running on http://localhost:%s (serving %s)", port, distDir)
-	log.Fatal(srv.ListenAndServe())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+	log.Printf("shutting down; flushing stats")
+	shutdown, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdown)
+	if store != nil {
+		store.close()
+	}
 }
 
 func newMux(distDir string, hub *Hub, radio *Radio, presence ...*Presence) http.Handler {
@@ -54,7 +101,7 @@ func newMux(distDir string, hub *Hub, radio *Radio, presence ...*Presence) http.
 	mux.HandleFunc("/api/radio/now", limitAPI(radio.Handle))
 	mux.HandleFunc("/api/radio/soma", limitAPI(NewSoma(nil).Handle))
 	mux.HandleFunc("/api/qr", limitAPI(handleQR))
-	if len(presence) > 0 && presence[0] != nil {
+	if len(presence) > 0 && presence[0] != nil && statsConfigured() {
 		mux.HandleFunc("/api/presence", limitAPI(presence[0].Handle))
 	}
 	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) { serveAPK(w, r, distDir) })

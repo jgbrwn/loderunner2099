@@ -1,7 +1,7 @@
 package main
 
-// Owner-only operations dashboard. statsMux is bound to the loopback interface by default;
-// it must not be mounted on the public game listener.
+// Owner-only operations dashboard on an alternate authenticated proxy port. It is never
+// mounted on the public game listener. Aggregate history survives service restarts.
 
 import (
 	"encoding/json"
@@ -71,46 +71,51 @@ type statsMode struct {
 }
 
 type statsSnapshot struct {
-	Generated     time.Time      `json:"generatedAt"`
-	Started       time.Time      `json:"startedAt"`
-	Uptime        time.Duration  `json:"-"`
-	UptimeMS      int64          `json:"uptimeMs"`
-	GoVersion     string         `json:"goVersion"`
-	Goroutines    int            `json:"goroutines"`
-	HeapBytes     uint64         `json:"heapBytes"`
-	SysBytes      uint64         `json:"sysBytes"`
-	GCRuns        uint32         `json:"gcRuns"`
-	ExternalNow   int            `json:"externalNow"`
-	LocalNow      int            `json:"localNow"`
-	PlayingNow    int            `json:"playingNow"`
-	IdleNow       int            `json:"idleNow"`
-	HiddenNow     int            `json:"hiddenNow"`
-	WebNow        int            `json:"webNow"`
-	TVNow         int            `json:"tvNow"`
-	PlayerSeats   int            `json:"estimatedPlayerSeats"`
-	ActiveSeats   int            `json:"activePlayerSeats"`
-	Modes         []statsMode    `json:"modes"`
-	Sessions      []statsSession `json:"sessions"`
-	UniqueTotal   uint64         `json:"uniqueSessionsTotal"`
-	GamesTotal    uint64         `json:"gameStartsTotal"`
-	LevelsTotal   uint64         `json:"levelAdvancesTotal"`
-	RoomsNow      int            `json:"roomsNow"`
-	RoomsOnline   int            `json:"roomsOnline"`
-	Rooms         []statsRoom    `json:"rooms"`
-	ReservedCodes int            `json:"reservedCodes"`
-	PadsNow       int            `json:"padsNow"`
-	PadsActive    int            `json:"padsActive"`
-	PadsIdle      int            `json:"padsIdle"`
-	Pads          []statsSession `json:"pads"`
-	RoomsTotal    uint64         `json:"roomsTotal"`
-	TVTotal       uint64         `json:"tvConnectionsTotal"`
-	PadTotal      uint64         `json:"padConnectionsTotal"`
-	TVMessages    uint64         `json:"tvMessagesTotal"`
-	PadMessages   uint64         `json:"padMessagesTotal"`
-	PadInputs     uint64         `json:"padInputsTotal"`
-	StatsRequests uint64         `json:"statsRequestsTotal"`
-	ActiveWindow  string         `json:"activeWindow"`
-	PresenceTTL   string         `json:"presenceTTL"`
+	Generated       time.Time       `json:"generatedAt"`
+	Started         time.Time       `json:"startedAt"`
+	Uptime          time.Duration   `json:"-"`
+	UptimeMS        int64           `json:"uptimeMs"`
+	GoVersion       string          `json:"goVersion"`
+	Goroutines      int             `json:"goroutines"`
+	HeapBytes       uint64          `json:"heapBytes"`
+	SysBytes        uint64          `json:"sysBytes"`
+	GCRuns          uint32          `json:"gcRuns"`
+	ExternalNow     int             `json:"externalNow"`
+	LocalNow        int             `json:"localNow"`
+	PlayingNow      int             `json:"playingNow"`
+	IdleNow         int             `json:"idleNow"`
+	HiddenNow       int             `json:"hiddenNow"`
+	WebNow          int             `json:"webNow"`
+	TVNow           int             `json:"tvNow"`
+	PlayerSeats     int             `json:"estimatedPlayerSeats"`
+	ActiveSeats     int             `json:"activePlayerSeats"`
+	Modes           []statsMode     `json:"modes"`
+	Sessions        []statsSession  `json:"sessions"`
+	UniqueTotal     uint64          `json:"uniqueSessionsTotal"`
+	GamesTotal      uint64          `json:"gameStartsTotal"`
+	LevelsTotal     uint64          `json:"levelAdvancesTotal"`
+	RoomsNow        int             `json:"roomsNow"`
+	RoomsOnline     int             `json:"roomsOnline"`
+	Rooms           []statsRoom     `json:"rooms"`
+	ReservedCodes   int             `json:"reservedCodes"`
+	PadsNow         int             `json:"padsNow"`
+	PadsActive      int             `json:"padsActive"`
+	PadsIdle        int             `json:"padsIdle"`
+	Pads            []statsSession  `json:"pads"`
+	RoomsTotal      uint64          `json:"roomsTotal"`
+	TVTotal         uint64          `json:"tvConnectionsTotal"`
+	PadTotal        uint64          `json:"padConnectionsTotal"`
+	TVMessages      uint64          `json:"tvMessagesTotal"`
+	PadMessages     uint64          `json:"padMessagesTotal"`
+	PadInputs       uint64          `json:"padInputsTotal"`
+	StatsRequests   uint64          `json:"statsRequestsTotal"`
+	ActiveWindow    string          `json:"activeWindow"`
+	PresenceTTL     string          `json:"presenceTTL"`
+	History         []activityPoint `json:"history24h"`
+	HistoryJSON     template.JS     `json:"-"`
+	ExternalPlaying int             `json:"externalPlayingNow"`
+	ExternalIdle    int             `json:"externalIdleNow"`
+	Persistent      bool            `json:"persistentTotals"`
 }
 
 func duration(n time.Duration) string {
@@ -175,6 +180,9 @@ func (h *Hub) stats(p *Presence, now time.Time) statsSnapshot {
 			if !idle {
 				s.PlayingNow++
 				s.ActiveSeats += v.players
+				if v.external {
+					s.ExternalPlaying += v.players
+				}
 			} else {
 				s.IdleNow++
 			}
@@ -185,6 +193,9 @@ func (h *Hub) stats(p *Presence, now time.Time) statsSnapshot {
 			s.HiddenNow++
 		} else {
 			s.IdleNow++
+		}
+		if v.external && idle {
+			s.ExternalIdle++
 		}
 	}
 	p.mu.Unlock()
@@ -229,6 +240,13 @@ func (h *Hub) stats(p *Presence, now time.Time) statsSnapshot {
 				Connected: now.Sub(c.connectedAt), LastInput: lastInput, Inputs: c.inputs, Messages: c.messages,
 				External: !isLocalAddr(c.remoteAddr)}
 			pad.IdleMS, pad.ConnectedMS, pad.LastInputMS = pad.IdleFor.Milliseconds(), pad.Connected.Milliseconds(), pad.LastInput.Milliseconds()
+			if pad.External {
+				if idle {
+					s.ExternalIdle++
+				} else if slot <= 2 {
+					s.ExternalPlaying++
+				}
+			}
 			s.Pads = append(s.Pads, pad)
 		}
 		r.AgeMS = r.Age.Milliseconds()
@@ -239,12 +257,27 @@ func (h *Hub) stats(p *Presence, now time.Time) statsSnapshot {
 	h.mu.Unlock()
 	sort.Slice(s.Rooms, func(i, j int) bool { return s.Rooms[i].Code < s.Rooms[j].Code })
 	sort.Slice(s.Pads, func(i, j int) bool { return s.Pads[i].ID < s.Pads[j].ID })
+	if p.store != nil {
+		s.History = p.store.graph(now)
+		s.Persistent = p.store.healthy()
+		if data, err := json.Marshal(s.History); err == nil {
+			s.HistoryJSON = template.JS(data)
+		}
+	}
 	return s
 }
 
 func isLocalAddr(host string) bool {
 	ip := net.ParseIP(strings.Trim(host, "[]"))
 	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+}
+
+func sampleStats(h *Hub, p *Presence, now time.Time) {
+	p.expire(now)
+	s := h.stats(p, now)
+	if p.store != nil {
+		p.store.record(activityPoint{Internet: s.ExternalNow, ActivePlayers: s.ExternalPlaying, IdleConnections: s.ExternalIdle}, now)
+	}
 }
 
 func statsMux(h *Hub, p *Presence) http.Handler {
@@ -255,7 +288,7 @@ func statsMux(h *Hub, p *Presence) http.Handler {
 			return
 		}
 		statsRequests.Add(1)
-		p.expire(time.Now())
+		sampleStats(h, p, time.Now())
 		noCache(w)
 		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -295,6 +328,7 @@ a{color:var(--cyan);text-decoration:none}a:hover{text-decoration:underline}.tool
 section{margin-top:28px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.15em;font-weight:500;margin:0 0 12px;color:#c8c1e8}h2 span{color:var(--muted);font-size:11px;letter-spacing:0;text-transform:none;margin-left:10px}
 .tablewrap{overflow:auto;border:1px solid var(--line);border-radius:9px;background:#0b0818}table{width:100%;border-collapse:collapse;white-space:nowrap}th{text-align:left;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:400;padding:12px 15px;background:#110d23}td{padding:12px 15px;border-top:1px solid #1c1732;font-size:12px}tr:hover td{background:#13102a}.tag{display:inline-block;border:1px solid #3a3260;border-radius:4px;padding:1px 6px;font-size:10px;text-transform:uppercase;color:#c4b9ed}.tag.play{color:var(--green);border-color:#28684c}.tag.idle{color:var(--amber);border-color:#635329}.tag.tv{color:var(--cyan)}.tag.pad{color:var(--pink)}.empty{padding:25px;text-align:center;color:var(--muted)}
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:22px}.facts{display:grid;grid-template-columns:1fr 1fr;gap:0 25px}.fact{display:flex;justify-content:space-between;gap:15px;padding:9px 0;border-bottom:1px solid #1c1732}.fact span{color:var(--muted)}.fact b{font-weight:400;text-align:right}.meter{height:5px;background:#211b3b;border-radius:4px;margin-top:10px;overflow:hidden}.meter i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--pink))}
+.chartcard{border:1px solid var(--line);border-radius:10px;background:linear-gradient(150deg,#14102b,#0b0818);padding:20px 20px 12px}.chartlegend{display:flex;gap:25px;flex-wrap:wrap;color:var(--muted);font-size:11px;margin-bottom:16px}.chartlegend span{display:flex;align-items:center;gap:7px}.chartlegend i{width:18px;height:3px;border-radius:2px}.chartlegend b{color:var(--text);font-weight:400;margin-left:4px}.chartlegend svg{overflow:visible}#activityChart{height:270px;position:relative}#activityChart svg{width:100%;height:100%;display:block;overflow:visible}.chartaxis{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;padding:5px 0 0 40px}.charttip{position:fixed;z-index:10;pointer-events:none;background:#191330;border:1px solid #44376e;border-radius:6px;padding:10px 12px;font-size:11px;box-shadow:0 8px 25px #0008;white-space:nowrap}.chartempty{height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted)}
 footer{color:var(--muted);font-size:11px;margin-top:28px;border-top:1px solid var(--line);padding-top:20px;line-height:1.8}.note{max-width:850px}.danger{color:var(--amber)}
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}main{padding:22px 16px}header{align-items:start;flex-direction:column}.toolbar{flex-wrap:wrap;gap:12px}}@media(max-width:430px){.grid{gap:9px}.card{padding:14px;min-height:105px}.value{font-size:29px}}
 </style></head><body><main>
@@ -306,6 +340,9 @@ footer{color:var(--muted);font-size:11px;margin-top:28px;border-top:1px solid va
 <div class="card"><div class="label">Connected, not active</div><div class="value pink">{{.IdleNow}}</div><div class="sub">menu, pause, idle screen, hidden or inactive</div></div>
 <div class="card"><div class="label">Player seats</div><div class="value">{{.PlayerSeats}}</div><div class="sub">estimated from current game sessions</div></div>
 </div>
+<section><h2>Internet activity · last 24 hours <span>five-minute averages · downtime appears as a gap</span></h2>
+<div class="chartcard"><div class="chartlegend"><span><i style="background:var(--cyan)"></i>Internet sessions <b id="nowInternet">{{.ExternalNow}}</b></span><span><i style="background:var(--green)"></i>Active players <b id="nowActive">{{.ExternalPlaying}}</b></span><span><i style="background:var(--pink)"></i>Idle connections <b id="nowIdle">{{.ExternalIdle}}</b></span></div>
+<div id="activityChart" role="img" aria-label="24-hour line graph of Internet sessions, active players and idle connections"></div><div class="chartaxis"><span id="chartStart">−24h</span><span>Time (<span id="timezone"></span>)</span><span>Now</span></div><div id="chartTip" class="charttip" hidden></div></div></section>
 <section><h2>Game sessions <span>heartbeats expire after {{.PresenceTTL}} · active means playing + input within {{.ActiveWindow}}</span></h2>
 <div class="tablewrap"><table><thead><tr><th>Origin</th><th>Client</th><th>Status</th><th>Mode</th><th>Level</th><th>Seats</th><th>Room</th><th>Connected</th><th>Idle for</th><th>Session</th></tr></thead><tbody>
 {{range .Sessions}}<tr><td>{{if .External}}<span class="tag play">Internet</span>{{else}}<span class="tag">Local</span>{{end}}</td><td><span class="tag {{.Kind}}">{{.Kind}}</span></td><td><span class="tag {{if .Idle}}idle{{else}}play{{end}}">{{.Screen}}</span></td><td>{{or .Mode "—"}}</td><td>{{if .Level}}{{.Level}}{{else}}—{{end}}</td><td>{{.Players}}</td><td>{{or .Room "—"}}</td><td>{{dur .Connected}}</td><td>{{dur .IdleFor}}</td><td title="{{.ID}}">{{short .ID}}</td></tr>{{else}}<tr><td colspan="10" class="empty">No browser sessions reporting right now.</td></tr>{{end}}
@@ -314,10 +351,42 @@ footer{color:var(--muted);font-size:11px;margin-top:28px;border-top:1px solid va
 <section class="cols"><div><h2>Pairing rooms <span>{{.RoomsOnline}} TVs online / {{.RoomsNow}} rooms</span></h2><div class="tablewrap"><table><thead><tr><th>Code</th><th>TV</th><th>State</th><th>Mode / level</th><th>P1/P2</th><th>Watching</th><th>Age</th></tr></thead><tbody>{{range .Rooms}}<tr><td><b>{{.Code}}</b></td><td>{{if .TV}}<span class="tag play">online</span>{{else}}<span class="tag idle">grace</span>{{end}}</td><td>{{or .Screen "unknown"}}</td><td>{{or .Mode "—"}} {{if .Level}}/ {{.Level}}{{end}}</td><td>{{.Players}}</td><td>{{.Watching}}</td><td>{{dur .Age}}</td></tr>{{else}}<tr><td colspan="7" class="empty">No active pairing rooms.</td></tr>{{end}}</tbody></table></div></div>
 <div><h2>Phone / desktop controllers <span>{{.PadsActive}} active · {{.PadsIdle}} inactive</span></h2><div class="tablewrap"><table><thead><tr><th>Controller</th><th>Room</th><th>State</th><th>Last input</th><th>Inputs</th><th>Connected</th></tr></thead><tbody>{{range .Pads}}<tr><td>{{if .Name}}{{.Name}}{{else}}Slot {{.Slot}}{{end}}</td><td>{{.Room}}</td><td><span class="tag {{if .Idle}}idle{{else}}play{{end}}">{{if .Idle}}inactive{{else}}active{{end}}</span></td><td>{{dur .LastInput}}</td><td>{{.Inputs}}</td><td>{{dur .Connected}}</td></tr>{{else}}<tr><td colspan="6" class="empty">No controllers connected.</td></tr>{{end}}</tbody></table></div></div></section>
 <section class="cols"><div><h2>Server health</h2><div class="card facts"><div class="fact"><span>Uptime</span><b>{{dur .Uptime}}</b></div><div class="fact"><span>Started</span><b>{{.Started.Format "Jan 02 15:04 MST"}}</b></div><div class="fact"><span>Go runtime</span><b>{{.GoVersion}}</b></div><div class="fact"><span>Goroutines</span><b>{{.Goroutines}}</b></div><div class="fact"><span>Heap allocated</span><b>{{bytes .HeapBytes}}</b></div><div class="fact"><span>Memory from OS</span><b>{{bytes .SysBytes}}</b></div><div class="fact"><span>GC runs</span><b>{{.GCRuns}}</b></div><div class="fact"><span>Dashboard requests</span><b>{{.StatsRequests}}</b></div></div></div>
-<div><h2>Since this server started</h2><div class="card facts"><div class="fact"><span>Unique browser sessions</span><b>{{.UniqueTotal}}</b></div><div class="fact"><span>Game starts</span><b>{{.GamesTotal}}</b></div><div class="fact"><span>Level advances</span><b>{{.LevelsTotal}}</b></div><div class="fact"><span>Rooms created</span><b>{{.RoomsTotal}}</b></div><div class="fact"><span>TV connections</span><b>{{.TVTotal}}</b></div><div class="fact"><span>Pad connections</span><b>{{.PadTotal}}</b></div><div class="fact"><span>TV / pad messages</span><b>{{.TVMessages}} / {{.PadMessages}}</b></div><div class="fact"><span>Real pad inputs</span><b>{{.PadInputs}}</b></div></div></div></section>
+<div><h2>Lifetime totals <span>{{if .Persistent}}survive restarts{{else}}persistence unavailable — check server logs{{end}}</span></h2><div class="card facts"><div class="fact"><span>Unique browser sessions</span><b>{{.UniqueTotal}}</b></div><div class="fact"><span>Game starts</span><b>{{.GamesTotal}}</b></div><div class="fact"><span>Level advances</span><b>{{.LevelsTotal}}</b></div><div class="fact"><span>Rooms created</span><b>{{.RoomsTotal}}</b></div><div class="fact"><span>TV connections</span><b>{{.TVTotal}}</b></div><div class="fact"><span>Pad connections</span><b>{{.PadTotal}}</b></div><div class="fact"><span>TV / pad messages</span><b>{{.TVMessages}} / {{.PadMessages}}</b></div><div class="fact"><span>Real pad inputs</span><b>{{.PadInputs}}</b></div></div></div></section>
 <footer><div class="note"><b>How to read this:</b> “Internet sessions” are browser game tabs arriving through the external proxy, not unique people. “Actively playing” means a visible, unpaused game with input in the last {{.ActiveWindow}}; hidden tabs and menus count as connected but not active. Player seats are estimates: the server cannot distinguish two people sharing one keyboard. Controllers are listed separately and never added to game-session totals.</div>
-<div>Totals are in-memory and reset on restart. No IP addresses, names from game sessions, seeds, or payloads are stored in this dashboard. Controller display names are limited to the existing pairing names. Reserved pairing codes: {{.ReservedCodes}}.</div></footer>
+<div>Lifetime totals and aggregate 24-hour history are saved locally and survive server restarts. No IP addresses, session IDs, names from game sessions, seeds, or payloads are persisted. Controller display names are limited to the existing pairing names. Reserved pairing codes: {{.ReservedCodes}}.</div></footer>
 </main><script>
+const HISTORY={{if .HistoryJSON}}{{.HistoryJSON}}{{else}}[]{{end}};
+const NOW={{.Generated.UnixMilli}};
+const chart=document.getElementById('activityChart'),tip=document.getElementById('chartTip');
+document.getElementById('timezone').textContent=Intl.DateTimeFormat().resolvedOptions().timeZone;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function drawHistory(){
+ const w=Math.max(320,chart.clientWidth),h=Math.max(220,chart.clientHeight),left=44,right=12,top=14,bottom=25,iw=w-left-right,ih=h-top-bottom;
+ const start=NOW-86400000,end=NOW,points=HISTORY.filter(p=>new Date(p.time).getTime()>=start-300000);
+ const max=Math.max(1,...points.map(p=>Math.max(p.internetSessions,p.activePlayers,p.idleConnections)));
+ const x=t=>left+(t-start)/(end-start)*iw,y=v=>top+ih-v/max*ih;
+ let svg='<svg viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" aria-hidden="true">';
+ for(let i=0;i<=4;i++){const v=Math.round(max*i/4),yy=y(v);svg+='<line x1="'+left+'" x2="'+(w-right)+'" y1="'+yy+'" y2="'+yy+'" stroke="#29223f" stroke-width="1"/><text x="'+(left-9)+'" y="'+(yy+4)+'" fill="#9690b5" font-size="10" text-anchor="end">'+v+'</text>'}
+ for(let i=0;i<=6;i++){const xx=left+iw*i/6;svg+='<line x1="'+xx+'" x2="'+xx+'" y1="'+top+'" y2="'+(top+ih)+'" stroke="#1b162e"/>'}
+ const series=[['internetSessions','#42f5e9'],['activePlayers','#72f1a7'],['idleConnections','#ff5bc8']];
+ const paths=[];
+ for(const [key,color] of series){let d='',open=false;const coords=[];
+  for(const p of points){const t=new Date(p.time).getTime();if(t<start||t>end)continue;const xx=x(t),yy=y(p[key]);coords.push({p,x:xx,y:yy});d+=(open?'L':'M')+xx.toFixed(2)+','+yy.toFixed(2)+' ';open=true}
+  if(d)svg+='<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>';
+  paths.push({key,color,coords});
+ }
+ // A small dot makes an isolated sample visible without inventing a line across downtime.
+ for(const s of paths)if(s.coords.length===1){const p=s.coords[0];svg+='<circle cx="'+p.x+'" cy="'+p.y+'" r="3" fill="'+s.color+'"/>'}
+ svg+='</svg>';chart.innerHTML=points.length?svg:'<div class="chartempty">Collecting activity… the first five-minute sample will appear shortly.</div>';
+ if(points.length){const hit=document.createElement('div');hit.style.cssText='position:absolute;inset:0';chart.appendChild(hit);
+  hit.onmousemove=e=>{const r=chart.getBoundingClientRect(),mouseTime=start+(e.clientX-r.left-left)/iw*(end-start);let nearest=null,dist=Infinity;
+   for(const p of points){const d=Math.abs(new Date(p.time).getTime()-mouseTime);if(d<dist){nearest=p;dist=d}}
+   if(!nearest)return;const d=new Date(nearest.time);tip.hidden=false;tip.innerHTML='<b>'+esc(d.toLocaleString())+'</b><br><span style="color:#42f5e9">●</span> Internet sessions: '+nearest.internetSessions+'<br><span style="color:#72f1a7">●</span> Active players: '+nearest.activePlayers+'<br><span style="color:#ff5bc8">●</span> Idle connections: '+nearest.idleConnections;
+   tip.style.left=Math.min(innerWidth-240,e.clientX+16)+'px';tip.style.top=Math.max(8,e.clientY-90)+'px'};
+  hit.onmouseleave=()=>tip.hidden=true;
+ }
+}
+drawHistory();let resizeTimer;addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(drawHistory,150)});
 const b=document.getElementById('refresh');b.onclick=()=>location.reload();let auto=false,t;
 document.getElementById('auto').innerHTML='<button id="toggle">Auto-refresh: off</button>';
 document.getElementById('toggle').onclick=()=>{auto=!auto;document.getElementById('toggle').textContent='Auto-refresh: '+(auto?'10s':'off');clearInterval(t);if(auto)t=setInterval(()=>location.reload(),10000)};

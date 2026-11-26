@@ -54,6 +54,7 @@ type Presence struct {
 	unique   uint64
 	games    uint64
 	levels   uint64
+	store    *statsStore
 }
 
 func NewPresence() *Presence { return &Presence{sessions: map[string]*presenceSession{}} }
@@ -84,10 +85,11 @@ func (p *Presence) update(u presenceUpdate, external bool, now time.Time) bool {
 	if u.Players < 1 || u.Players > 2 || u.Level < 0 || u.Level > 100000 || u.IdleMS < 0 {
 		return false
 	}
+	delta := lifetimeTotals{}
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if u.Gone {
 		delete(p.sessions, u.ID)
+		p.mu.Unlock()
 		return true
 	}
 	s := p.sessions[u.ID]
@@ -100,21 +102,27 @@ func (p *Presence) update(u presenceUpdate, external bool, now time.Time) bool {
 				}
 			}
 			if len(p.sessions) >= maxPresence {
+				p.mu.Unlock()
 				return false
 			}
 		}
 		s = &presenceSession{id: u.ID, connected: now}
 		p.sessions[u.ID] = s
 		p.unique++
+		delta.Unique = 1
 		if u.Screen == "play" {
 			p.games++
+			delta.Games = 1
 		}
 	} else {
 		if s.screen != "play" && u.Screen == "play" {
 			p.games++
+			delta.Games = 1
 		}
 		if u.Screen == "play" && u.Level > s.level {
-			p.levels += uint64(u.Level - s.level)
+			n := uint64(u.Level - s.level)
+			p.levels += n
+			delta.Levels = n
 		}
 	}
 	s.kind, s.screen, s.mode, s.level, s.players = u.Kind, u.Screen, u.Mode, u.Level, u.Players
@@ -122,6 +130,10 @@ func (p *Presence) update(u presenceUpdate, external bool, now time.Time) bool {
 	s.idle = time.Duration(u.IdleMS) * time.Millisecond
 	if s.idle > 365*24*time.Hour {
 		s.idle = 365 * 24 * time.Hour
+	}
+	p.mu.Unlock()
+	if p.store != nil && delta != (lifetimeTotals{}) {
+		p.store.add(delta)
 	}
 	return true
 }

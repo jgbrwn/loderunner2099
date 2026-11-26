@@ -10,6 +10,14 @@ ExecStart=/home/exedev/loderunner2099/server
 Restart=always
 RestartSec=5
 Environment=PORT=8000
+Environment=STATS_ENABLED=true
+Environment=STATS_PORT=8001
+Environment=STATS_BIND=0.0.0.0
+Environment=STATS_FILE=/var/lib/loderunner2099/stats.json
+# Creates /var/lib/loderunner2099 owned by User=/Group= before starting.
+# Required for lifetime totals and the 24-hour graph to survive restarts.
+StateDirectory=loderunner2099
+StateDirectoryMode=0750
 
 [Install]
 WantedBy=multi-user.target

@@ -13,7 +13,11 @@ const randomId = (): string => {
   return Array.from(a, n => n.toString(36).padStart(2, '0')).join('').slice(0, 24);
 };
 
+let installed = false;
+
 export function initPresence(game: Phaser.Game): void {
+  if (installed) return;
+  installed = true;
   let id = '';
   try { id = sessionStorage.getItem(ID_KEY) || ''; if (!id) { id = randomId(); sessionStorage.setItem(ID_KEY, id); } }
   catch { id = randomId(); } // privacy mode: still anonymous; a reload simply looks like a new visit

@@ -91,12 +91,21 @@ WorkingDirectory=/home/exedev/loderunner2099
 ExecStart=/home/exedev/loderunner2099/server
 Restart=always
 RestartSec=5
+Environment=PORT=8000
+Environment=STATS_ENABLED=true
+Environment=STATS_PORT=8001
+Environment=STATS_BIND=0.0.0.0
+Environment=STATS_FILE=/var/lib/loderunner2099/stats.json
+# Creates /var/lib/loderunner2099 owned by User=/Group= before starting.
+StateDirectory=loderunner2099
+StateDirectoryMode=0750
 
-# Security hardening
+# Optional security hardening. Keep the state directory writable if enabling
+# ProtectSystem=strict; StateDirectory normally adds the necessary writable path.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/home/exedev/loderunner2099
+ReadWritePaths=/home/exedev/loderunner2099 /var/lib/loderunner2099
 
 [Install]
 WantedBy=multi-user.target
@@ -270,13 +279,46 @@ The game process also serves a live operations dashboard on port **8001**:
 - On the VM: `http://localhost:8001/stats`
 
 It is deliberately not mounted on the public game listener (`/stats` there returns 404).
-The alternate exe.dev proxy port uses owner/VM-user authentication. `STATS_PORT` changes the
-alternate port (default `8001`); `STATS_BIND` is not needed. Totals are in-memory and reset
-when the game service restarts.
+The alternate exe.dev proxy port uses owner/VM-user authentication. On another host, do not expose
+this port publicly: bind `STATS_BIND=127.0.0.1` and reverse-proxy it behind your own authentication,
+or restrict port 8001 to trusted networks. The server does not add its own dashboard password.
+
+Configuration (the repository's `loderunner2099.service` is a working example):
+
+| Environment variable | Default | Purpose |
+|---|---|---|
+| `STATS_ENABLED` | `true` | Set `false`, `off`, `0`, or `no` to disable the dashboard, persistence, and `/api/presence`. |
+| `STATS_PORT` | `8001` | Alternate HTTP listener. Never mounted on public game port 8000. |
+| `STATS_BIND` | `0.0.0.0` | Listener address; use `127.0.0.1` behind a local authenticated reverse proxy. |
+| `STATS_FILE` | `/var/lib/loderunner2099/stats.json` | Aggregate totals/history file. Set `off` to run the dashboard without persistence. |
+
+**Required deployment files:** the Go server binary built from the repository root, `dist/` from
+`npm run build`, and a systemd unit such as `loderunner2099.service`. For persistence, either keep
+`StateDirectory=loderunner2099` in the unit (recommended), or create the directory yourself:
+
+```bash
+sudo install -d -o exedev -g exedev -m 0750 /var/lib/loderunner2099
+sudo cp loderunner2099.service /etc/systemd/system/loderunner2099.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now loderunner2099
+```
+
+If changing `User=` or `Group=`, change the directory ownership too. `deploy.sh` also creates this
+directory for existing exe.dev installations. No database, migration, npm service, or extra process
+is required. The directory is only needed when stats and persistence are enabled.
+
+Lifetime counters and the last 24 hours of activity samples are saved atomically every 15 seconds
+when dirty, so they survive restarts and redeploys (a forced stop can lose at most the unsaved
+interval). Graceful restarts also flush once on shutdown. The dashboard displays a warning if
+persistence cannot be written. The JSON response
+includes `history24h`, five-minute average samples for Internet sessions, active player seats and
+idle connections (including Internet controllers). Missing samples are downtime, not zero activity.
 
 Game tabs send anonymous, coarse presence heartbeats to `/api/presence` every 15 seconds:
-menu/play/pause/over/idle/hidden, game mode, level, player-seat count, and input idle age.
-No player names, seeds, IP addresses, or game payloads are stored by the dashboard. Pairing
+menu/play/pause/over/idle/hidden, game mode, level, player-seat count, and input idle age when
+`STATS_ENABLED` is true. The endpoint returns 404 and collection is inert when stats are disabled.
+No player names, session IDs, room codes, seeds, IP addresses, or game payloads are persisted.
+Only aggregate counters and five-minute activity samples are written to disk. Pairing
 WebSockets additionally provide room and controller activity; phone keepalives with no buttons
 pressed do not count as activity. “Internet” means the request arrived through the external
 proxy; local development sessions are shown separately.

@@ -77,7 +77,6 @@ func newConn(ws *websocket.Conn, r *http.Request) *conn {
 // liveness, not activity; only a real button input changes lastInput.
 func (h *Hub) observeConn(c *conn, kind string, input bool) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if kind == "tv" {
 		h.tvMessages++
 	} else {
@@ -89,6 +88,20 @@ func (h *Hub) observeConn(c *conn, kind string, input bool) {
 		h.padInputs++
 		c.inputs++
 		c.lastInput = c.lastMessage
+	}
+	store := h.store
+	h.mu.Unlock()
+	if store != nil {
+		d := lifetimeTotals{}
+		if kind == "tv" {
+			d.TVMessages = 1
+		} else {
+			d.PadMessages = 1
+		}
+		if input {
+			d.PadInputs = 1
+		}
+		store.add(d)
 	}
 }
 
@@ -159,6 +172,7 @@ type Hub struct {
 	reserved map[string]reservation
 	origins  []string
 	started  time.Time
+	store    *statsStore
 
 	// Lifetime counters reset on process restart; the dashboard says so explicitly.
 	tvConnections, padConnections uint64
@@ -207,7 +221,11 @@ func (h *Hub) HandleTV(w http.ResponseWriter, r *http.Request) {
 	c := newConn(ws, r)
 	h.mu.Lock()
 	h.tvConnections++
+	store := h.store
 	h.mu.Unlock()
+	if store != nil {
+		store.add(lifetimeTotals{TVConnections: 1})
+	}
 	q := r.URL.Query()
 	room := h.claimRoom(c, strings.ToUpper(q.Get("code")), hashToken(q.Get("token")), time.Now())
 	if room == nil {
@@ -281,6 +299,9 @@ func (h *Hub) claimRoom(c *conn, want, tok string, now time.Time) *Room {
 	room := &Room{hub: h, Code: code, tv: c, pads: map[int]*conn{}, token: tok, createdAt: now}
 	h.rooms[code] = room
 	h.roomsCreated++
+	if h.store != nil {
+		h.store.add(lifetimeTotals{Rooms: 1})
+	}
 	return room
 }
 
@@ -395,7 +416,11 @@ func (h *Hub) HandlePad(w http.ResponseWriter, r *http.Request) {
 	c := newConn(ws, r)
 	h.mu.Lock()
 	h.padConnections++
+	store := h.store
 	h.mu.Unlock()
+	if store != nil {
+		store.add(lifetimeTotals{PadConnections: 1})
+	}
 	c.id = q.Get("id")
 	if len(c.id) > 64 {
 		c.id = c.id[:64]

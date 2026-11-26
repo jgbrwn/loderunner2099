@@ -22,3 +22,6 @@ npm-debug.log*
 # Environment
 .env
 .env.local
+
+# Local operations telemetry (production: /var/lib/loderunner2099/stats.json)
+stats.json
