@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -56,10 +57,39 @@ type conn struct {
 	name string
 	once sync.Once
 	done chan struct{}
+
+	// Anonymous, owner-only diagnostics. No IP addresses or payloads are retained.
+	connectedAt time.Time
+	remoteAddr  string // socket peer only; used to distinguish proxied Internet traffic
+	lastInput   time.Time
+	lastMessage time.Time
+	inputs      uint64
+	messages    uint64
 }
 
-func newConn(ws *websocket.Conn) *conn {
-	return &conn{ws: ws, out: make(chan []byte, sendBuf), done: make(chan struct{})}
+func newConn(ws *websocket.Conn, r *http.Request) *conn {
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return &conn{ws: ws, out: make(chan []byte, sendBuf), done: make(chan struct{}),
+		connectedAt: time.Now(), remoteAddr: host}
+}
+
+// observeConn is called after a valid client frame has been parsed. Keepalives count as
+// liveness, not activity; only a real button input changes lastInput.
+func (h *Hub) observeConn(c *conn, kind string, input bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if kind == "tv" {
+		h.tvMessages++
+	} else {
+		h.padMessages++
+	}
+	c.messages++
+	c.lastMessage = time.Now()
+	if input {
+		h.padInputs++
+		c.inputs++
+		c.lastInput = c.lastMessage
+	}
 }
 
 // send never blocks; a client too slow to drain its buffer is dropped.
@@ -105,13 +135,22 @@ func (c *conn) writeLoop(ctx context.Context) {
 	}
 }
 
+type roomState struct {
+	screen string
+	mode   string
+	level  int
+}
+
 type Room struct {
-	Code   string
-	mu     sync.Mutex
-	tv     *conn
-	tvLeft time.Time
-	pads   map[int]*conn
-	token  string // sha256 of the owning TV's token ("" = anonymous)
+	hub       *Hub
+	Code      string
+	mu        sync.Mutex
+	tv        *conn
+	tvLeft    time.Time
+	pads      map[int]*conn
+	token     string // sha256 of the owning TV's token ("" = anonymous)
+	createdAt time.Time
+	state     roomState
 }
 
 type Hub struct {
@@ -119,6 +158,13 @@ type Hub struct {
 	rooms    map[string]*Room
 	reserved map[string]reservation
 	origins  []string
+	started  time.Time
+
+	// Lifetime counters reset on process restart; the dashboard says so explicitly.
+	tvConnections, padConnections uint64
+	roomsCreated                  uint64
+	tvMessages, padMessages       uint64
+	padInputs                     uint64
 }
 
 func NewHub(origins []string) *Hub {
@@ -128,7 +174,7 @@ func NewHub(origins []string) *Hub {
 			o = append(o, s)
 		}
 	}
-	return &Hub{rooms: map[string]*Room{}, reserved: map[string]reservation{}, origins: o}
+	return &Hub{rooms: map[string]*Room{}, reserved: map[string]reservation{}, origins: o, started: time.Now()}
 }
 
 func msg(v map[string]any) []byte { b, _ := json.Marshal(v); return b }
@@ -158,7 +204,10 @@ func (h *Hub) HandleTV(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	c := newConn(ws)
+	c := newConn(ws, r)
+	h.mu.Lock()
+	h.tvConnections++
+	h.mu.Unlock()
 	q := r.URL.Query()
 	room := h.claimRoom(c, strings.ToUpper(q.Get("code")), hashToken(q.Get("token")), time.Now())
 	if room == nil {
@@ -229,8 +278,9 @@ func (h *Hub) claimRoom(c *conn, want, tok string, now time.Time) *Room {
 		}
 	}
 	delete(h.reserved, code)
-	room := &Room{Code: code, tv: c, pads: map[int]*conn{}, token: tok}
+	room := &Room{hub: h, Code: code, tv: c, pads: map[int]*conn{}, token: tok, createdAt: now}
 	h.rooms[code] = room
+	h.roomsCreated++
 	return room
 }
 
@@ -249,6 +299,16 @@ func (rm *Room) broadcastPads(b []byte) {
 }
 
 // fromTV: {"to":0|1|2|..., "m":{...}} → m forwarded to that slot (0 = all pads). {"t":"ping"} → pong.
+func validScreen(s string) bool {
+	switch s {
+	case "menu", "play", "pause", "over", "idle":
+		return true
+	}
+	return false
+}
+
+func validMode(s string) bool { return s == "single" || s == "coop" || s == "versus" }
+
 func (rm *Room) fromTV(c *conn, data []byte) {
 	var env struct {
 		T  string          `json:"t"`
@@ -257,6 +317,29 @@ func (rm *Room) fromTV(c *conn, data []byte) {
 	}
 	if json.Unmarshal(data, &env) != nil {
 		return
+	}
+	rm.hub.observeConn(c, "tv", false)
+	if env.T == "state" {
+		var s struct {
+			Screen string `json:"screen"`
+			Mode   string `json:"mode"`
+			Level  int    `json:"level"`
+		}
+		if json.Unmarshal(env.M, &s) == nil {
+			rm.mu.Lock()
+			if validScreen(s.Screen) {
+				rm.state.screen = s.Screen
+			}
+			if validMode(s.Mode) {
+				rm.state.mode = s.Mode
+			} else if s.Screen == "menu" || s.Screen == "idle" {
+				rm.state.mode = ""
+			}
+			if s.Level >= 0 && s.Level <= 100000 {
+				rm.state.level = s.Level
+			}
+			rm.mu.Unlock()
+		}
 	}
 	if env.T == "ping" {
 		c.send(msg(map[string]any{"t": "pong"}))
@@ -309,7 +392,10 @@ func (h *Hub) HandlePad(w http.ResponseWriter, r *http.Request) {
 		fail("no_room")
 		return
 	}
-	c := newConn(ws)
+	c := newConn(ws, r)
+	h.mu.Lock()
+	h.padConnections++
+	h.mu.Unlock()
 	c.id = q.Get("id")
 	if len(c.id) > 64 {
 		c.id = c.id[:64]
@@ -349,6 +435,12 @@ func (h *Hub) HandlePad(w http.ResponseWriter, r *http.Request) {
 		if !json.Valid(data) {
 			continue
 		}
+		var in struct {
+			T string `json:"t"`
+			B *int   `json:"b"`
+		}
+		input := json.Unmarshal(data, &in) == nil && in.T == "in" && in.B != nil && *in.B != 0
+		h.observeConn(c, "pad", input)
 		// wrap without re-encoding the payload
 		b := make([]byte, 0, len(data)+24)
 		b = append(b, `{"t":"pad","slot":`...)

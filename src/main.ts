@@ -7,6 +7,7 @@ import { getInput } from './input/InputManager';
 import { initTouchOverlay } from './ui/TouchOverlay';
 import { initPWA } from './platform/pwa';
 import { hideSplash } from './platform/splash';
+import { initPresence } from './platform/presence';
 import { lockGestures } from './platform/mobile';
 import { CANVAS_W, CANVAS_H, patchTextResolution, hiResGame } from './graphics/HiRes';
 
@@ -38,3 +39,4 @@ game.events.once('ready', () => hideSplash());
 initTouchOverlay(game);
 (window as any).__GAME__ = game;
 (window as any).__INPUT__ = getInput();
+initPresence(game);

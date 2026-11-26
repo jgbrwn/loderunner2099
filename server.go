@@ -19,27 +19,44 @@ func main() {
 		log.Fatal("dist/ directory not found. Run 'npm run build' first.")
 	}
 	hub := NewHub(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","))
+	presence := NewPresence()
 	go hub.janitor(30 * time.Second)
 	radio := NewRadio(nil)
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           newMux(distDir, hub, radio),
+		Handler:           newMux(distDir, hub, radio, presence),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:  30 * time.Second,  // covers header+body of a normal request; WS upgrade returns before body read
-		IdleTimeout:  120 * time.Second, // keep-alive reaped. WriteTimeout deliberately unset: it would kill
+		ReadTimeout:       30 * time.Second,  // covers header+body of a normal request; WS upgrade returns before body read
+		IdleTimeout:       120 * time.Second, // keep-alive reaped. WriteTimeout deliberately unset: it would kill
 		// long-lived WebSockets; coder/websocket's 20s ping handles dead WS peers instead.
 	}
+	// Owner-only dashboard on an alternate port. Alternate exe.dev proxy ports are
+	// authenticated for VM users; the dashboard is never mounted on the public game port.
+	statsPort := os.Getenv("STATS_PORT")
+	if statsPort == "" {
+		statsPort = "8001"
+	}
+	statsSrv := &http.Server{Addr: ":" + statsPort, Handler: statsMux(hub, presence), ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		log.Printf("📊 Private stats: http://localhost:%s/stats", statsPort)
+		if err := statsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("stats server: %v", err)
+		}
+	}()
 	log.Printf("🎮 Lode Runner 2099 server running on http://localhost:%s (serving %s)", port, distDir)
 	log.Fatal(srv.ListenAndServe())
 }
 
-func newMux(distDir string, hub *Hub, radio *Radio) http.Handler {
+func newMux(distDir string, hub *Hub, radio *Radio, presence ...*Presence) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/tv", limitWS(hub.HandleTV))
 	mux.HandleFunc("/ws/pad", limitWS(hub.HandlePad))
 	mux.HandleFunc("/api/radio/now", limitAPI(radio.Handle))
 	mux.HandleFunc("/api/radio/soma", limitAPI(NewSoma(nil).Handle))
 	mux.HandleFunc("/api/qr", limitAPI(handleQR))
+	if len(presence) > 0 && presence[0] != nil {
+		mux.HandleFunc("/api/presence", limitAPI(presence[0].Handle))
+	}
 	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) { serveAPK(w, r, distDir) })
 	mux.HandleFunc("/", staticHandler(distDir))
 	static := gzipStatic(distDir, mux)

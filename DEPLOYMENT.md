@@ -260,3 +260,23 @@ sudo lsof -i :8000
 2. **Use HTTP/2** - Configure your reverse proxy for HTTP/2 support
 3. **CDN** - For global distribution, put a CDN in front of the server
 4. **Preload hints** - The `index.html` can include preload hints for critical assets
+
+## Private operations dashboard
+
+The game process also serves a live operations dashboard on port **8001**:
+
+- HTML: `https://loderunner2099.exe.xyz:8001/stats`
+- JSON: `https://loderunner2099.exe.xyz:8001/stats?format=json`
+- On the VM: `http://localhost:8001/stats`
+
+It is deliberately not mounted on the public game listener (`/stats` there returns 404).
+The alternate exe.dev proxy port uses owner/VM-user authentication. `STATS_PORT` changes the
+alternate port (default `8001`); `STATS_BIND` is not needed. Totals are in-memory and reset
+when the game service restarts.
+
+Game tabs send anonymous, coarse presence heartbeats to `/api/presence` every 15 seconds:
+menu/play/pause/over/idle/hidden, game mode, level, player-seat count, and input idle age.
+No player names, seeds, IP addresses, or game payloads are stored by the dashboard. Pairing
+WebSockets additionally provide room and controller activity; phone keepalives with no buttons
+pressed do not count as activity. “Internet” means the request arrived through the external
+proxy; local development sessions are shown separately.

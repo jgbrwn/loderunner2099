@@ -15,3 +15,4 @@ sudo systemctl restart loderunner2099
 
 echo "✅ Deployed! Check status with: sudo systemctl status loderunner2099"
 echo "🌐 Game: https://loderunner2099.exe.xyz/  (TV: /tv, phone pad: /pad, Android TV APK: /app after android/build.sh)"
+echo "📊 Private stats: https://loderunner2099.exe.xyz:8001/stats  (JSON: ?format=json)"
