@@ -60,6 +60,19 @@ export class KeyboardSource implements InputSource {
     this.down.add(e.code); this.down.add(e.key); this.tapped.add(e.code); this.tapped.add(e.key);
     if ((this.bound.has(e.code) || this.bound.has(e.key)) && e.code !== 'Escape' && (e.target as HTMLElement | null)?.tagName !== 'INPUT') e.preventDefault();
   };
+  /** A remote keyboard is injected into the TV's native event path. Phaser 4 still reads the
+   * legacy numeric keyCode for its Key objects, while our InputManager reads code/key. Supply both. */
+  remoteKey(code: string, key: string, down: boolean): void {
+    if (!/^[A-Za-z0-9_]{1,40}$/.test(code) || key.length > 40) return;
+    let keyCode = 0;
+    if (/^Key[A-Z]$/.test(code)) keyCode = code.charCodeAt(3);
+    else if (code === 'Equal') keyCode = 187;
+    else if (code === 'Minus') keyCode = 189;
+    else if (code === 'NumpadAdd') keyCode = 107;
+    else if (code === 'NumpadSubtract') keyCode = 109;
+    if (!keyCode) return; // only forwarded game shortcuts reach this path
+    this.target.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key, keyCode, which: keyCode, bubbles: true }));
+  }
   private onUp = (e: KeyboardEvent) => { this.down.delete(e.code); this.down.delete(e.key); };
   private onBlur = () => this.down.clear();
   endFrame(): void { this.tapped.clear(); }

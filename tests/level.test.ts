@@ -79,6 +79,25 @@ describe('solver', () => {
   });
 });
 
+describe('normal guard distribution', () => {
+  const count = (seed: number, level: number): number => (new LevelGenerator(`GUARD${seed}`, 'normal', level) as any).enemyCount();
+  it('favours two or three guards early, and lone guards become rarer later', () => {
+    for (const [level, maxLone] of [[1, 0.24], [6, 0.15], [11, 0.07]]) {
+      let lone = 0;
+      for (let seed = 0; seed < 2000; seed++) if (count(seed, level) === 1) lone++;
+      expect(lone / 2000).toBeLessThan(maxLone);
+    }
+    const rate = (level: number) => Array.from({ length: 1000 }, (_, i) => count(i + 3000, level)).filter(n => n === 1).length;
+    expect(rate(11)).toBeLessThan(rate(1));
+  });
+  it('keeps other difficulties unchanged', () => {
+    for (const d of ['easy', 'hard', 'ninja']) {
+      const counts = Array.from({ length: 100 }, (_, i) => (new LevelGenerator(`OTHER${i}`, d, 10) as any).enemyCount());
+      expect(Math.min(...counts)).toBeGreaterThanOrEqual(d === 'easy' ? 1 : d === 'hard' ? 2 : 3);
+    }
+  });
+});
+
 describe('generator', () => {
   it('deterministic and solvable', () => {
     for (const d of ['easy', 'normal', 'hard', 'ninja']) for (let s = 0; s < 25; s++) {

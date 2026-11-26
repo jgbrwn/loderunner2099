@@ -309,6 +309,7 @@ export class MenuScene extends Phaser.Scene {
     const spect = tv.pads.filter(p => p.slot > 2).length;
     el.innerHTML = tv.code
       ? `<div>SCAN TO USE YOUR PHONE</div><img class="qr${big ? ' big' : ''}" alt="" src="${tv.qrImageUrl()}">
+         <div class="pairhint">OR OPEN /pad ON A PHONE OR COMPUTER<br>ENTER THIS CODE · COMPUTER KEYBOARD WORKS</div>
          <div class="url">${location.host}/pad</div><div class="code">${tv.code}</div>
          <div class="slots">${slot(1)}${slot(2)}</div>${spect ? `<div class="url">+${spect} watching</div>` : ''}`
       : `<div>${tv.connected ? '' : 'CONNECTING…'}</div>`;

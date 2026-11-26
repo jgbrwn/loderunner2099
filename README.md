@@ -42,6 +42,8 @@ installable offline PWA.
 | Dig left / right | Z / X (or Q / E) | X / B, LB / RB, LT / RT |
 | Pause menu | P / Esc | Start |
 | Theme / CRT / Speed | T / C / + − | — |
+| Mute / music mode | M / B | — |
+| Restart level / new seed | R / N | — |
 
 2-player on one keyboard: P1 = WASD + Q/E, P2 = arrows + `,`/`.` (or IJKL + U/O).
 
@@ -54,6 +56,10 @@ get caught when the hole refills.
    [android/README.md](android/README.md)).
 2. Scan the QR code with your phone (or open `/pad` and enter the 4-letter code). Pick P1 or P2.
 3. The phone is now a controller; sound plays on the TV (enable "Sound on phone" on the pad if you want it there too).
+
+A keyboard connected to `/pad` supports the full desktop control set, including T/C/M/B/R/N and +/−
+shortcuts. A Bluetooth keyboard paired directly with Android TV also works: arrows/WASD move, Z/X dig,
+and the same pause/menu/shortcut keys. Install/update the APK for the improved keyboard-device detection.
 
 ## 🚀 Development
 

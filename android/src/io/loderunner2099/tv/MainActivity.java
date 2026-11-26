@@ -25,7 +25,9 @@ import android.widget.Toast;
 
 /**
  * Lode Runner 2099 for Android TV: a fullscreen WebView on PUBLIC_URL/tv?app=1.
- * D-pad / OK / media keys go to the page as normal key events. BACK calls window.lr2099OnBack() if the page
+ * D-pad / OK / media keys and Bluetooth keyboard keys go to the page as normal key events.
+ * Full desktop shortcuts work on a BT keyboard: arrows/WASD, Z/X dig, P pause, T theme,
+ * C CRT, M sound, B music, R restart, N new seed and +/- speed. BACK calls window.lr2099OnBack() if the page
  * defines it (return true = handled); otherwise press BACK twice to exit. MENU = change server URL.
  * The page sees window.LR2099TV {version(), serverUrl(), exit()} — only pages on the configured server host load.
  */
@@ -170,6 +172,11 @@ public class MainActivity extends Activity {
         if (d == null) return false;
         int s = d.getSources();
         String n = d.getName() == null ? "" : d.getName().toLowerCase();
+        // A Bluetooth keyboard must stay on the WebView key path: letter keys are shortcuts
+        // (T/C/M/B/R/N/+/-), arrows/WASD and Z/X are gameplay. Some combo devices advertise
+        // joystick axes too; their keyboard letters must not be swallowed as gamepad buttons.
+        boolean keyboard = (s & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
+        if (keyboard && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return false;
         // A TV remote (Onn/Google TV) is NOT a gamepad even though it exposes SOURCE_DPAD and a
         // "controller"-ish name. Exclude it explicitly so it stays on the normal remote/key path.
         boolean remote = n.contains("remote") || n.contains("onn") || n.contains("google tv")

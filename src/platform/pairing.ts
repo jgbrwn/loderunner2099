@@ -9,6 +9,7 @@
 import { getInput, type RemotePadSource } from '../input/InputManager';
 import { bitsToActions } from './padBits';
 
+export interface RemoteKey { code: string; key: string; down: boolean }
 export interface PadInfo { slot: number; name: string; player: number | null }
 export interface TVState {
   screen: 'menu' | 'play' | 'pause' | 'over' | 'idle'; mode?: 'single' | 'coop' | 'versus';
@@ -41,6 +42,8 @@ export class TVPairing {
   onMenu: (player: number | null, action: string, slot: number) => void = () => {};
   /** Any other app message from a phone. */
   onPadMessage: (slot: number, m: any) => void = () => {};
+  /** Keyboard events forwarded by a /pad keyboard. No keyboard location is inferred. */
+  onRemoteKey: (slot: number, event: RemoteKey) => void = () => {};
 
   private ws: WebSocket | null = null;
   private token = '';
@@ -164,7 +167,9 @@ export class TVPairing {
       if (player === null) return;
       this.applyBits(slot, player, Number(m.b) | 0);
     } else if (m.t === 'menu') this.onMenu(player, String(m.a), slot);
-    else this.onPadMessage(slot, m);
+    else if (m.t === 'key' && typeof m.code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(m.code) && typeof m.key === 'string' && m.key.length <= 40) {
+      this.onRemoteKey(slot, { code: m.code, key: m.key, down: m.down === true });
+    } else this.onPadMessage(slot, m);
   }
 
   private applyBits(slot: number, player: number, b: number): void {

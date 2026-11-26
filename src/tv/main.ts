@@ -18,6 +18,9 @@ function boot(game: import('phaser').Game): void {
   tv.onChange = () => game.events.emit('tvpairing', tv);
   game.registry.set('tvPairing', tv);
   w.__TV__ = tv;
+  // A keyboard on /pad forwards shortcuts here. Feed the real DOM path so Phaser's JustDown
+  // shortcuts work exactly like a locally attached (including Bluetooth) keyboard.
+  tv.onRemoteKey = (_slot, e) => (window as any).__INPUT__?.keyboard?.remoteKey(e.code, e.key, e.down);
   // Remote (key) input must resume the AudioContext: the TV app has no pointer events, so Web Audio
   // (synth music + SFX) would otherwise stay suspended/silent even though <audio> radio plays.
   import('../audio/SoundManager').then(({ getSoundManager }) => {

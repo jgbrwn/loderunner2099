@@ -906,7 +906,7 @@ export class LevelGenerator {
     m.goldDropCells = res.analysis!.dropCells;
 
     // guards: assisted spawns first, then spread over the main area away from the player
-    const nEnemies = rng.range(d.enemies[0], d.enemies[1] + 1);
+    const nEnemies = this.enemyCount();
     for (const s of m.enemyAssistedSpawns) if (m.enemyStarts.length < nEnemies) m.enemyStarts.push({ ...s });
     const ecand: P[] = [];
     for (let y = 1; y < H - 1; y++) for (let x = 0; x < W; x++) {
@@ -928,6 +928,15 @@ export class LevelGenerator {
     }
     if (!m.enemyStarts.length) return null;
     return { map: m, res };
+  }
+
+  /** NORMAL favours a pair/trio over a lone guard; lone guards become rarer as the run progresses. */
+  private enemyCount(): number {
+    const [min, max] = this.difficulty.enemies;
+    if (this.difficultyKey !== 'normal' || max <= min) return this.rng.range(min, max + 1);
+    const lone = this.rng.next();
+    if (lone < (this.levelNumber >= 11 ? 0.02 : this.levelNumber >= 6 ? 0.08 : 0.15)) return min;
+    return this.rng.range(min + 1, max + 1);
   }
 
   /** Last resort: fixed frame with seeded gold. Always solvable. */

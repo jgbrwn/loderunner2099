@@ -73,6 +73,7 @@ function start(): void {
   connect();
 }
 function stop(msg: string): void {
+  clearRemoteKeys();
   active = false;
   clearTimeout(retryTimer);
   const w = ws; ws = null; w?.close();
@@ -184,6 +185,12 @@ $('kbd').hidden = $('kbdJoin').hidden = !DESKTOP;
 const KEYMAP = new Map<string, Action>();
 for (const [a, codes] of Object.entries(DEFAULT_BINDINGS[0]) as [Action, string[]][]) for (const c of codes) if (!KEYMAP.has(c)) KEYMAP.set(c, a);
 const keysDown = new Map<string, Action>();
+const forwardedKeys = new Set<string>();
+const SHORTCUTS = new Set(['KeyT', 'KeyC', 'KeyM', 'KeyB', 'KeyR', 'KeyN', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract']);
+const clearRemoteKeys = (): void => {
+  for (const code of forwardedKeys) send({ t: 'key', code, key: code.startsWith('Key') ? code.slice(3).toLowerCase() : code, down: false });
+  forwardedKeys.clear();
+};
 const btnFor = (a: Action): HTMLElement | null => a === 'digLeft' || a === 'back' && !inPlay ? actA : a === 'digRight' || a === 'confirm' && !inPlay ? actB
   : document.querySelector<HTMLElement>(`.sys .tbtn[data-a="${a}"]`);
 function keyBits(): void {
@@ -196,14 +203,21 @@ function keyBits(): void {
 const onKey = (down: boolean) => (e: KeyboardEvent) => {
   if (!active || (e.target as HTMLElement | null)?.tagName === 'INPUT' || e.ctrlKey || e.metaKey || e.altKey) return;
   const a = KEYMAP.get(e.code);
-  if (!a) return;
+  if (a) {
+    e.preventDefault();
+    if (down) { if (e.repeat && keysDown.has(e.code)) return; keysDown.set(e.code, a); } else keysDown.delete(e.code);
+    keyBits();
+    return;
+  }
+  if (!SHORTCUTS.has(e.code)) return;
   e.preventDefault();
-  if (down) { if (e.repeat && keysDown.has(e.code)) return; keysDown.set(e.code, a); } else keysDown.delete(e.code);
-  keyBits();
+  if (down && e.repeat && forwardedKeys.has(e.code)) return;
+  if (down) forwardedKeys.add(e.code); else forwardedKeys.delete(e.code);
+  send({ t: 'key', code: e.code, key: e.key, down });
 };
 addEventListener('keydown', onKey(true));
 addEventListener('keyup', onKey(false));
-addEventListener('blur', () => { keysDown.clear(); keyBits(); });
+addEventListener('blur', () => { keysDown.clear(); clearRemoteKeys(); keyBits(); });
 
 // "Sound on phone" (opt-in; audio normally plays on the TV only): tiny WebAudio SFX for TV events.
 let padSound = ls('lr2099.padSound') === '1';

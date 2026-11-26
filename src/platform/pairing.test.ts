@@ -14,6 +14,22 @@ class FakeWS {
 const poll = (src: RemotePadSource, p: number) => { const o = emptyActions(); src.poll(p, o); return o; };
 
 describe('TVPairing', () => {
+  it('forwards validated keyboard shortcut events to the TV', () => {
+    const tv = new TVPairing({ url: 'ws://x/ws/tv', input: new RemotePadSource(), WebSocketImpl: FakeWS as any, storage: null });
+    const events: any[] = [];
+    tv.onRemoteKey = (slot, event) => events.push({ slot, ...event });
+    FakeWS.last.recv({ t: 'pad', slot: 1, m: { t: 'key', code: 'KeyT', key: 't', down: true } });
+    FakeWS.last.recv({ t: 'pad', slot: 1, m: { t: 'key', code: 'Equal', key: '+', down: true } });
+    FakeWS.last.recv({ t: 'pad', slot: 1, m: { t: 'key', code: 'KeyT', key: 't', down: false } });
+    FakeWS.last.recv({ t: 'pad', slot: 1, m: { t: 'key', code: 'bad code!', key: 'x', down: true } });
+    expect(events).toEqual([
+      { slot: 1, code: 'KeyT', key: 't', down: true },
+      { slot: 1, code: 'Equal', key: '+', down: true },
+      { slot: 1, code: 'KeyT', key: 't', down: false },
+    ]);
+    tv.close();
+  });
+
   it('maps pad bits to players, stretches short taps, relays state and reconnects with the code', () => {
     vi.useFakeTimers();
     const input = new RemotePadSource();

@@ -36,6 +36,10 @@ Phone → TV:
 - `{"t":"in","b":BITS}` — full button state, sent on every change (+ every 1 s as keepalive). Bits:
   1 left, 2 right, 4 up, 8 down, 16 digLeft, 32 digRight, 64 pause, 128 back, 256 confirm.
 - `{"t":"menu","a":"pause"|"resume"|"restart"|"quit"}` — optional explicit actions.
+- `{"t":"key","code":"KeyT","key":"t","down":true}` — keyboard shortcut forwarded by `/pad`; keyup uses
+  `down:false`. TV injects it into its DOM/Phaser key path. Current shortcuts: T theme, C CRT,
+  M sound, B music, R restart, N new seed, +/- speed (including numpad). Movement/dig/pause/back/OK
+  use the normal `in` bits above. Only the allowlisted shortcut codes are forwarded.
 
 TV → phone:
 - `{"t":"state","screen":"menu"|"play"|"pause"|"over"|"idle","mode":"single"|"coop"|"versus","level":3,

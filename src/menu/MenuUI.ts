@@ -86,6 +86,7 @@ body.lr-menu-open #touch-ui,body.lr-menu-open #touch-opts{visibility:hidden!impo
 #lr-menu .slot.p2.on{border-color:#ffcc00;box-shadow:0 0 14px #ffcc0066}
 #lr-menu .slot b{display:block;font-size:3vh}
 #lr-menu .url{color:#8ab;font-size:2.2vh}
+#lr-menu .pairhint{color:#bde;font-size:1.7vh;line-height:1.35;letter-spacing:.04em;text-align:center;max-width:38vw}
 @media (prefers-reduced-motion:reduce){#lr-menu,#lr-menu *{animation:none!important;transition:none!important}}
 `;
 
