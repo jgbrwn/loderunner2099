@@ -159,7 +159,7 @@ export class MenuScene extends Phaser.Scene {
   private optionsPage(): Page {
     const sm = getSoundManager();
     const cyc = <T>(list: T[], cur: T, d: number): T => list[(list.indexOf(cur) + d + list.length) % list.length];
-    const themes = Object.keys(THEMES);
+    const themes = ['auto', ...Object.keys(THEMES)];
     const idle = [0, 2, 5, 10, 15, 30];
     const tvMode = isTV();
     return {
@@ -168,7 +168,7 @@ export class MenuScene extends Phaser.Scene {
         { label: 'MUSIC', value: () => ({ procedural: 'SYNTH', radio: 'RADIO PARADISE', soma: 'SOMA SPACE STATION', off: 'OFF' } as any)[sm.getMusicMode()],
           cycle: d => sm.setMusicMode(cyc(['procedural', 'radio', 'soma', 'off'] as const as any[], sm.getMusicMode(), d)) },
         { label: 'SOUND FX', value: () => (sm.isEnabled() ? 'ON' : 'OFF'), cycle: () => { sm.toggle(); } },
-        { label: 'THEME', value: () => THEMES[Settings.theme].name?.toUpperCase?.() ?? Settings.theme.toUpperCase(),
+        { label: 'LEVEL ART', value: () => Settings.theme === 'auto' ? 'AUTO TOUR' : THEMES[Settings.theme].name.toUpperCase(),
           cycle: d => { Settings.theme = cyc(themes, Settings.theme, d); } },
         { label: 'CRT EFFECT', value: () => (Settings.crt ? 'ON' : 'OFF'), cycle: () => { Settings.crt = !Settings.crt; } },
         { label: 'GAME SPEED', value: () => `${CONFIG.SPEED_MULTIPLIERS[Settings.speedIndex]}×`,
@@ -211,7 +211,7 @@ export class MenuScene extends Phaser.Scene {
   private controlsPage(): Page {
     const rows = [
       ['MOVE', 'ARROWS / WASD · D-PAD · STICK'], ['DIG LEFT / RIGHT', 'Z X · Q E · A B · ⏪ ⏩'],
-      ['PAUSE', 'P · START · ⏯'], ['MENU', 'ESC ×2 · BACK'], ['SPEED', '+ / −'], ['THEME · CRT', 'T · C'],
+      ['PAUSE', 'P · START · ⏯'], ['MENU', 'ESC ×2 · BACK'], ['SPEED', '+ / −'], ['LEVEL ART · CRT', 'T · C'],
       ['MUTE · MUSIC', 'M · B'], ['PHONE PAD', 'TV MENU → PAIR'],
     ];
     return {

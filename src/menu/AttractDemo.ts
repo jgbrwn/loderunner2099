@@ -8,6 +8,7 @@ import { botInput } from './bot';
 import { FieldView } from '../graphics/FieldView';
 import { computeLayout } from '../graphics/Layout';
 import { Settings } from '../systems/Settings';
+import { TOUR_POOL } from '../systems/ArtTour';
 
 export class AttractDemo {
   private view: FieldView;
@@ -17,21 +18,28 @@ export class AttractDemo {
   private restartAt = 0;
   private lastGoldTick = 0;
   private n = 0;
+  private viewVariant = -1;
   private viewTheme: import("../config").Theme | null = null;
 
   constructor(private scene: Phaser.Scene) {
-    this.view = new FieldView(scene, computeLayout(1)[0], THEMES[Settings.theme]);
+    this.view = new FieldView(scene, computeLayout(1)[0], this.pickTheme());
     // Live theme switching: the Options page writes Settings.theme; adopt it here every frame.
+    // Auto Tour: each demo round shows the next environment.
     scene.events.on('update', () => {
-      const t = THEMES[Settings.theme];
-      if (t && t !== this.viewTheme) { this.viewTheme = t; this.view.setTheme(t); scene.cameras.main.setBackgroundColor(t.background); }
+      const t = this.pickTheme();
+      // backdrop variant: Auto Tour shows the other backdrop on each lap of the pool; a fixed theme alternates per round
+      const v = Settings.theme === 'auto' ? Math.floor(this.n / TOUR_POOL.length) : this.n;
+      if (t && (t !== this.viewTheme || v !== this.viewVariant)) { this.viewTheme = t; this.viewVariant = v; this.view.setTheme(t, v); scene.cameras.main.setBackgroundColor(t.background); }
     });
     this.next(scene.time.now);
   }
 
+  private pickTheme(): import("../config").Theme {
+    return Settings.theme === 'auto' ? THEMES[TOUR_POOL[this.n % TOUR_POOL.length]] : THEMES[Settings.theme];
+  }
+
   private next(time: number): void {
     this.n++;
-    // Always use the player's chosen theme (the Options page owns it); don't cycle on our own.
     const seed = `DEMO${Math.floor(Math.random() * 1e6)}`;
     const diff = 'easy';
     const map = new LevelGenerator(seed, diff, 1 + (this.n % 4)).generateWithInfo(1).map;

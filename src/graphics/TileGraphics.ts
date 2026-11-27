@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Theme } from '../config';
 import { drawCharacterFrames } from './CharacterArt';
 import { rgba, shade, tint, mix, Rng } from './color';
+import { stoneBrick, palaceBrick, metalBrick, stoneHard, palaceHard, metalHard, woodLadder, chainPole, ropePole, glassBrick, glassHard, chromeBrick, chromeHard } from './Materials';
 
 const C = 32;          // atlas cell size
 const COLS = 16;
@@ -17,7 +18,7 @@ export class TileGraphics {
   private scene: Phaser.Scene;
   constructor(scene: Phaser.Scene) { this.scene = scene; }
 
-  static key(theme: Theme): string { return 'lr_atlas_' + theme.name.replace(/\W/g, ''); }
+  static key(theme: Theme): string { return 'lr_atlas_' + (theme.id ?? theme.name.replace(/\W/g, '')); }
 
   /** Generates the atlas for `theme` if not cached; returns its texture key. */
   generateTextures(theme: Theme): string {
@@ -30,10 +31,10 @@ export class TileGraphics {
     add('brick_trap', ctx => drawBrick(ctx, theme, 0, true));
     add('edge_top', ctx => drawEdge(ctx, theme));
     for (let v = 0; v < 2; v++) add('hard' + v, ctx => drawHard(ctx, theme, v));
-    add('ladder', ctx => drawLadder(ctx, theme.ladder));
+    add('ladder', ctx => drawLadderM(ctx, theme, theme.ladder));
     // Escape ladder: the regular ladder alloyed with the theme's gold (it's what the gold unlocked) —
     // same shape, a clear but quiet hue shift. Themes can override via `exitLadder`.
-    add('ladder_exit', ctx => drawLadder(ctx, theme.exitLadder ?? mix(theme.ladder, theme.gold, 0.42), true));
+    add('ladder_exit', ctx => drawLadderM(ctx, theme, theme.exitLadder ?? mix(theme.ladder, theme.gold, 0.42), true));
     add('pole', ctx => drawPole(ctx, theme));
     add('hole', ctx => drawHole(ctx, theme));
     for (let k = 0; k < 5; k++) add('crumble' + k, ctx => drawCrumble(ctx, theme, (k + 1) / 6));
@@ -97,6 +98,11 @@ function px(ctx: Ctx, x: number, y: number, w: number, h: number, c: number, a =
 }
 
 function drawBrick(ctx: Ctx, theme: Theme, variant: number, trap = false): void {
+  if (theme.material === 'stone') return stoneBrick(ctx, theme, variant, trap);
+  if (theme.material === 'palace') return palaceBrick(ctx, theme, variant, trap);
+  if (theme.material === 'metal') return metalBrick(ctx, theme, variant, trap);
+  if (theme.material === 'glass') return glassBrick(ctx, theme, variant, trap);
+  if (theme.material === 'chrome') return chromeBrick(ctx, theme, variant, trap);
   const base = tint(theme.brick, 1.12);
   const mortar = shade(base, 0.35);
   const rng = new Rng(17 + variant * 101);
@@ -123,7 +129,16 @@ function drawBrick(ctx: Ctx, theme: Theme, variant: number, trap = false): void 
   } else if (variant === 2) { // chipped corners + specks
     px(ctx, 0, 0, 3, 2, mortar); px(ctx, 0, 2, 1, 1, mortar); px(ctx, 29, 24, 3, 2, mortar);
     for (let i = 0; i < 10; i++) px(ctx, Math.floor(rng.next() * 32), Math.floor(rng.next() * 32), 1, 1, tint(base, rng.next() < 0.5 ? 0.6 : 1.4));
-  } else if (variant === 3) { // neon inlay
+  }
+  if (theme.material === 'code') { // Matrix: glyphs etched into every brick face
+    const g = mix(base, theme.ladder, 0.55);
+    for (let row = 0; row < 4; row++) for (let gx = (row % 2 ? 3 : 4); gx < 29; gx += 8) {
+      if (rng.next() < 0.35) continue;
+      for (let k = 0; k < 6; k++) if (rng.next() < 0.55) px(ctx, gx + (k % 2), row * 8 + 2 + (k >> 1), 1, 1, g, 0.85);
+    }
+    return;
+  }
+  if (variant === 3) { // neon inlay
     const g = theme.ladder;
     px(ctx, 19, 11, 8, 1, g, 0.55); px(ctx, 26, 11, 1, 4, g, 0.55); px(ctx, 26, 15, 1, 1, g, 0.9);
     px(ctx, 18, 10, 2, 3, g, 0.25);
@@ -137,6 +152,11 @@ function drawEdge(ctx: Ctx, theme: Theme): void {
 }
 
 function drawHard(ctx: Ctx, theme: Theme, variant: number): void {
+  if (theme.material === 'stone') return stoneHard(ctx, theme, variant);
+  if (theme.material === 'palace') return palaceHard(ctx, theme, variant);
+  if (theme.material === 'metal') return metalHard(ctx, theme, variant);
+  if (theme.material === 'glass') return glassHard(ctx, theme, variant);
+  if (theme.material === 'chrome') return chromeHard(ctx, theme, variant);
   const base = mix(theme.brickHard, 0x8090a8, 0.3);
   px(ctx, 0, 0, 32, 32, shade(base, 0.3));
   // plate with vertical gradient
@@ -154,13 +174,22 @@ function drawHard(ctx: Ctx, theme: Theme, variant: number): void {
   } else { // grooves
     for (const y of [10, 15, 20]) { px(ctx, 8, y, 16, 1, shade(base, 0.55)); px(ctx, 8, y + 1, 16, 1, tint(base, 1.4)); }
   }
+  if (theme.material === 'code') { // Matrix: a data-core readout across the plate
+    const r = new Rng(5 + variant);
+    for (let y = 9; y < 23; y += 2) for (let x = 9; x < 23; x += 2) if (r.next() < 0.5) px(ctx, x, y, 1, 1, theme.ladder, 0.7);
+  }
 }
 
-function drawLadder(ctx: Ctx, color: number, exit = false): void {
+function drawLadderM(ctx: Ctx, theme: Theme, color: number, exit = false): void {
+  if (theme.material === 'stone') return woodLadder(ctx, color, exit);
+  drawLadder(ctx, color, exit, theme.material !== 'palace');
+}
+
+function drawLadder(ctx: Ctx, color: number, exit = false, halo = true): void {
   const core = mix(color, 0xffffff, 0.6);
   // glow halo
-  for (const x of [5, 25]) { px(ctx, x - 2, 0, 6, 32, color, 0.12); px(ctx, x - 1, 0, 4, 32, color, 0.18); }
-  for (let y = 3; y < 32; y += 8) px(ctx, 7, y - 1, 18, 4, color, 0.14);
+  if (halo) for (const x of [5, 25]) { px(ctx, x - 2, 0, 6, 32, color, 0.12); px(ctx, x - 1, 0, 4, 32, color, 0.18); }
+  if (halo) for (let y = 3; y < 32; y += 8) px(ctx, 7, y - 1, 18, 4, color, 0.14);
   // rails
   for (const x of [5, 25]) { px(ctx, x, 0, 2, 32, color); px(ctx, x, 0, 1, 32, core); }
   // rungs
@@ -170,6 +199,8 @@ function drawLadder(ctx: Ctx, color: number, exit = false): void {
 }
 
 function drawPole(ctx: Ctx, theme: Theme): void {
+  if (theme.material === 'stone') return chainPole(ctx, theme);
+  if (theme.material === 'palace') return ropePole(ctx, theme);
   const c = mix(mix(theme.pole, theme.ladder, 0.25), 0xffffff, 0.3);
   px(ctx, 0, 2, 32, 6, theme.ladder, 0.12);
   px(ctx, 0, 3, 32, 4, theme.ladder, 0.16);

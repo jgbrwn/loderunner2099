@@ -78,7 +78,7 @@ export class FieldView {
     const bgFill = s.add.rectangle(0, 0, FIELD_W, FIELD_H, mix(this.theme.background, 0x000000, 0.25)).setOrigin(0);
     this.bgLayer = s.add.container(0, 0).setAlpha(0.75);
     this.bg?.destroy();
-    this.bg = new Background(s, this.bgLayer, this.theme, FIELD_W, FIELD_H, this.reduced);
+    this.bg = new Background(s, this.bgLayer, this.theme, FIELD_W, FIELD_H, this.reduced, this.bgVariant);
     this.rt = s.add.renderTexture(0, 0, FIELD_W, FIELD_H).setOrigin(0);
     const layer = () => s.add.container(0, 0);
     const underC = layer(), goldC = layer(), actorC = layer(), overC = layer();
@@ -95,7 +95,12 @@ export class FieldView {
   /** Versus: a single-player board drawn as player 2. */
   playerIndexOffset = 0;
 
-  setTheme(theme: Theme): void { this.theme = theme; this.build(); }
+  private bgVariant = 0;
+  /** Rebuilds only if the theme or backdrop variant actually changed. */
+  setTheme(theme: Theme, bgVariant = this.bgVariant): void {
+    if (theme === this.theme && bgVariant === this.bgVariant && this.tex) return;
+    this.theme = theme; this.bgVariant = bgVariant; this.build();
+  }
   setReducedMotion(on: boolean): void { this.reduced = on; this.build(); }
 
   /** Show a (new or restarted) world; plays the board draw-in. */

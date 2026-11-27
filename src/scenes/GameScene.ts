@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import { toggleFullscreen, fullscreenSupported, isFullscreen } from '../platform/fullscreen';
 import { CONFIG, DIFFICULTIES, THEMES, Theme } from '../config';
+import { AUTO, tourAt } from '../systems/ArtTour';
+import { Background } from '../graphics/Background';
+import { TileGraphics } from '../graphics/TileGraphics';
 import { TileMap } from '../level/TileMap';
 import { LevelGenerator } from '../level/LevelGenerator';
 import { FieldView } from '../graphics/FieldView';
@@ -50,8 +53,10 @@ export class GameScene extends Phaser.Scene {
   private seedCode = '';
   private difficulty = 'normal';
   private theme: Theme = THEMES.cyber;
-  private themeKeys = Object.keys(THEMES);
+  /** 'auto' first, then the fixed themes */
+  private themeKeys = [AUTO, ...Object.keys(THEMES)];
   private themeIndex = 0;
+  private zoneText!: Phaser.GameObjects.Text;
   private speedIndex: number = CONFIG.DEFAULT_SPEED_INDEX;
   /** Public: the TV idle screen watches this. */
   paused = false;
@@ -88,7 +93,8 @@ export class GameScene extends Phaser.Scene {
     this.menu = null;
     this.tvKey = '';
     this.themeIndex = Math.max(0, this.themeKeys.indexOf(Settings.theme));
-    this.theme = THEMES[this.themeKeys[this.themeIndex]];
+    this.theme = this.resolveTheme();
+    this.bgVariant = 0;
     this.speedIndex = Settings.speedIndex;
   }
 
@@ -132,6 +138,10 @@ export class GameScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '24px', fontStyle: 'bold', color: '#ffffff', align: 'center', stroke: '#000000', strokeThickness: 5,
     }).setOrigin(0.5).setDepth(100).setResolution(2);
 
+    this.zoneText = this.add.text(CONFIG.GAME_WIDTH / 2, CONFIG.GAME_HEIGHT * 0.72, '', {
+      fontFamily: 'monospace', fontSize: '20px', fontStyle: 'bold', color: '#ffffff', align: 'center', stroke: '#000000', strokeThickness: 5,
+    }).setOrigin(0.5).setDepth(100).setResolution(2).setAlpha(0);
+
     this.cameras.main.setBackgroundColor(this.theme.background);
     this.crtEffect = new CRTEffect(this);
     if (this.theme.scanlines === false) this.crtEffect.setIntensity(0.3);
@@ -157,7 +167,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---------------- level lifecycle ----------------
+  private get artChoice(): string { return this.themeKeys[this.themeIndex]; }
+  /** Theme for the current level: the fixed choice, or the Auto Tour stop (same seed+level => same art). */
+  private resolveTheme(level = this.level): Theme {
+    return this.artChoice === AUTO ? THEMES[tourAt(this.seedCode, level).key] : THEMES[this.artChoice];
+  }
+  /** Backdrop variant: Auto Tour shows the other backdrop when it revisits a set; a fixed theme alternates
+   *  backdrops every 2–3 levels (same chapter rhythm as the tour). */
+  private resolveBgVariant(level = this.level): number {
+    const stop = tourAt(this.seedCode, level);
+    return this.artChoice === AUTO ? stop.visit : stop.chapter;
+  }
+  private bgVariant = 0;
+  private applyTheme(theme: Theme, bgVariant = this.resolveBgVariant()): void {
+    this.theme = theme; this.bgVariant = bgVariant;
+    this.cameras.main.setBackgroundColor(theme.background);
+    for (const b of this.boards) { b.view.setTheme(theme, bgVariant); b.hud?.setTheme(theme); }
+    if (this.mode === 'versus') this.buildVersusHud();
+    this.crtEffect.applyTheme(theme);
+    this.crtEffect.setEnabled(Settings.crt);
+  }
+  /** Brief environment name card (Auto Tour only, when the zone changes or a run starts). */
+  private showZone(): void {
+    this.zoneText.setText(`— ${this.theme.name} —`).setColor('#' + this.theme.hudText.toString(16).padStart(6, '0')).setAlpha(0);
+    this.tweens.killTweensOf(this.zoneText);
+    this.tweens.add({ targets: this.zoneText, alpha: 1, duration: 350, hold: 1700, yoyo: true });
+  }
+  /** Build the next level's art during the level-complete outro so the switch doesn't hitch. */
+  private prewarmTheme(level: number): void {
+    const t = this.resolveTheme(level), v = this.resolveBgVariant(level);
+    if (t !== this.theme) new TileGraphics(this).generateTextures(t);
+    Background.prepare(this, t, v);
+  }
+
   private newLevel(): void {
+    const next = this.resolveTheme(), v = this.resolveBgVariant();
+    if (next !== this.theme || v % Background.variants(next) !== this.bgVariant % Background.variants(next)) this.applyTheme(next, v);
+    if (this.artChoice === AUTO && (this.level === 1 || tourAt(this.seedCode, this.level).first)) this.showZone();
     const gen = new LevelGenerator(`${this.seedCode}-L${this.level}`, this.difficulty, this.level);
     this.levelMap = gen.generateWithInfo().map;
     for (const b of this.boards) this.startWorld(b);
@@ -288,7 +334,7 @@ export class GameScene extends Phaser.Scene {
       { label: () => `SOUND  ◀ ${sm.isEnabled() ? 'ON' : 'OFF'} ▶`, act: fx(() => sm.toggle()), adj: fx(() => sm.toggle()) },
       { label: () => `CRT  ◀ ${this.crtOn() ? 'ON' : 'OFF'} ▶`, act: fx(() => this.toggleCRT()), adj: fx(() => this.toggleCRT()) },
       { label: () => `REDUCED MOTION  ◀ ${Settings.reducedMotion.toUpperCase()} ▶`, act: fx(() => this.cycleReducedMotion(1)), adj: fx(d => this.cycleReducedMotion(d)) },
-      { label: () => `THEME  ◀ ${this.theme.name.toUpperCase()} ▶`, act: () => this.cycleTheme(1), adj: d => this.cycleTheme(d) },
+      { label: () => `LEVEL ART  ◀ ${this.artLabel()} ▶`, act: () => this.cycleTheme(1), adj: d => this.cycleTheme(d) },
       { label: () => `SPEED  ◀ x${CONFIG.SPEED_MULTIPLIERS[this.speedIndex]} ▶`, act: fx(() => this.setSpeed(1, true)), adj: fx(d => this.setSpeed(d)) },
       { label: () => 'BACK', act: () => this.setMenuPage('main') },
     ];
@@ -341,16 +387,13 @@ export class GameScene extends Phaser.Scene {
     this.speedIndex = wrap ? (this.speedIndex + d + n) % n : Math.max(0, Math.min(n - 1, this.speedIndex + d));
     Settings.speedIndex = this.speedIndex;
   }
+  private artLabel(): string { return this.artChoice === AUTO ? 'AUTO TOUR' : this.theme.name.toUpperCase(); }
   private cycleTheme(d: number): void {
     const n = this.themeKeys.length;
     this.themeIndex = (this.themeIndex + d + n) % n;
-    this.theme = THEMES[this.themeKeys[this.themeIndex]];
-    Settings.theme = this.themeKeys[this.themeIndex];
-    this.cameras.main.setBackgroundColor(this.theme.background);
-    for (const b of this.boards) { b.view.setTheme(this.theme); b.hud?.setTheme(this.theme); }
-    if (this.mode === 'versus') this.buildVersusHud();
-    this.crtEffect.applyTheme(this.theme);
-    this.crtEffect.setEnabled(Settings.crt);
+    Settings.theme = this.artChoice;
+    this.applyTheme(this.resolveTheme());
+    if (!this.menu) this.showMessage(this.artLabel(), 1000);
     getSoundManager().playMenuSelect();
   }
 
@@ -439,6 +482,7 @@ export class GameScene extends Phaser.Scene {
       b.wins++;
       const [w1, w2] = this.boards.map(x => x.wins);
       this.showMessage(`P${b.inputs[0] + 1} WINS ROUND ${this.level}!\n\n+1500 BONUS\n\nROUNDS  P1 ${w1} : ${w2} P2`, 2600);
+      this.time.delayedCall(400, () => { if (!this.leaving) this.prewarmTheme(this.level + 1); });
       this.time.delayedCall(1700, () => { for (const x of this.boards) x.view.playOutro(this.now); });
       this.time.delayedCall(2750, () => { if (this.leaving) return; this.level++; this.newLevel(); });
       return;
@@ -446,6 +490,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.unlimited) this.lives++;
     this.showMessage(`LEVEL ${this.level} COMPLETE!\n\n+1500 BONUS${this.unlimited ? '' : '\n+1 LIFE!'}`, 2000);
     this.level++;
+    this.time.delayedCall(400, () => { if (!this.leaving) this.prewarmTheme(this.level); });
     this.time.delayedCall(1100, () => b.view.playOutro(this.now));
     this.time.delayedCall(2150, () => { if (!this.leaving) this.newLevel(); });
   }
