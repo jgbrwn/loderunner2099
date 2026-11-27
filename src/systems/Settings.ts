@@ -8,7 +8,7 @@ const set = (k: string, v: string | null): void => {
 };
 
 export const Settings = {
-  /** a THEMES key, or 'auto' (Auto Tour: art changes every 2–3 levels). One-time migration: players still on the
+  /** a THEMES key, or 'auto' (Auto Tour: a fresh environment every level). One-time migration: players still on the
    *  old default (unset / cyber) move to Auto Tour; any other explicit pick is kept as a fixed theme. */
   get theme(): string {
     if (get('artV') !== '1') { set('artV', '1'); const old = get('theme'); if (!old || old === 'cyber') set('theme', 'auto'); }

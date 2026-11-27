@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { toggleFullscreen, fullscreenSupported, isFullscreen } from '../platform/fullscreen';
 import { CONFIG, DIFFICULTIES, THEMES, Theme } from '../config';
-import { AUTO, tourAt } from '../systems/ArtTour';
+import { AUTO, backdropChapter, tourAt } from '../systems/ArtTour';
 import { Background } from '../graphics/Background';
 import { TileGraphics } from '../graphics/TileGraphics';
 import { TileMap } from '../level/TileMap';
@@ -36,6 +36,8 @@ interface Board {
 type MenuItem = { label: () => string; act?: () => void; adj?: (d: number) => void };
 
 const MUSIC_MODES: MusicMode[] = ['procedural', 'radio', 'soma', 'off'];
+const MUSIC_LABELS: Record<MusicMode, string> = { procedural: 'SYNTH', radio: 'RADIO PARADISE', soma: 'SOMA FM', off: 'OFF' };
+const SHORTCUT_MS = 1800;
 
 /** Renders the deterministic sim (src/sim) and handles session flow (lives, levels, pause menu, versus rounds). */
 export class GameScene extends Phaser.Scene {
@@ -177,10 +179,10 @@ export class GameScene extends Phaser.Scene {
     return this.artChoice === AUTO ? THEMES[tourAt(this.seedCode, level).key] : THEMES[this.artChoice];
   }
   /** Backdrop variant: Auto Tour shows the other backdrop when it revisits a set; a fixed theme alternates
-   *  backdrops every 2–3 levels (same chapter rhythm as the tour). */
+   *  backdrops in independently scheduled 2–3-level chapters. */
   private resolveBgVariant(level = this.level): number {
     const stop = tourAt(this.seedCode, level);
-    return this.artChoice === AUTO ? stop.visit : stop.chapter;
+    return this.artChoice === AUTO ? stop.visit : backdropChapter(this.seedCode, level);
   }
   private bgVariant = 0;
   private applyTheme(theme: Theme, bgVariant = this.resolveBgVariant()): void {
@@ -280,13 +282,16 @@ export class GameScene extends Phaser.Scene {
     }
     if (input.anyJustPressed('pause') || input.anyJustPressed('back')) { this.openMenu(); return; }
     if (JD(k.theme)) this.cycleTheme(1);
-    if (JD(k.crt)) this.showMessage(this.toggleCRT() ? 'CRT ON' : 'CRT OFF', 1000);
-    if (JD(k.mute)) this.showMessage(getSoundManager().toggle() ? 'SOUND ON' : 'SOUND OFF', 1000);
-    if (JD(k.music)) this.showMessage(`MUSIC: ${this.cycleMusic(1).toUpperCase()}`, 1000);
-    if (JD(k.restart) && !this.transitioning) { this.restartLevel(); this.showMessage(''); }
-    if (JD(k.newLevel)) { this.seedCode = generateSeedCode(); this.restartGame(); this.updateShareURL(); }
-    if (JD(k.plus) || JD(k.plus2)) this.setSpeed(1);
-    if (JD(k.minus) || JD(k.minus2)) this.setSpeed(-1);
+    if (JD(k.crt)) this.showMessage(this.toggleCRT() ? 'CRT ON' : 'CRT OFF', SHORTCUT_MS);
+    if (JD(k.mute)) this.showMessage(getSoundManager().toggle() ? 'SOUND ON' : 'SOUND OFF', SHORTCUT_MS);
+    if (JD(k.music)) this.showMessage(`MUSIC: ${MUSIC_LABELS[this.cycleMusic(1)]}`, SHORTCUT_MS);
+    if (JD(k.restart) && !this.transitioning) { this.restartLevel(); this.showMessage(`LEVEL ${this.level} RESTARTED`, SHORTCUT_MS); }
+    if (JD(k.newLevel)) {
+      this.seedCode = generateSeedCode(); this.restartGame(); this.updateShareURL();
+      this.showMessage(`NEW SEED: ${this.seedCode}`, SHORTCUT_MS);
+    }
+    if (JD(k.plus) || JD(k.plus2)) this.showMessage(`SPEED ${this.setSpeed(1)}×`, SHORTCUT_MS);
+    if (JD(k.minus) || JD(k.minus2)) this.showMessage(`SPEED ${this.setSpeed(-1)}×`, SHORTCUT_MS);
   }
 
   // ---------------- pause menu ----------------
@@ -334,7 +339,7 @@ export class GameScene extends Phaser.Scene {
       ...(fullscreenSupported() ? [{ label: () => `FULLSCREEN  ◀ ${isFullscreen() ? 'ON' : 'OFF'} ▶`, act: () => { void toggleFullscreen().then(() => this.renderMenu()); }, adj: () => { void toggleFullscreen().then(() => this.renderMenu()); } }] : []),
       { label: () => 'QUIT TO MENU', act: () => this.returnToMenu() },
     ] : [
-      { label: () => `MUSIC  ◀ ${({ procedural: 'SYNTH', radio: 'RADIO PARADISE', soma: 'SOMA FM', off: 'OFF' } as Record<string, string>)[sm.getMusicMode()]} ▶`, act: fx(() => this.cycleMusic(1)), adj: fx(d => this.cycleMusic(d)) },
+      { label: () => `MUSIC  ◀ ${MUSIC_LABELS[sm.getMusicMode()]} ▶`, act: fx(() => this.cycleMusic(1)), adj: fx(d => this.cycleMusic(d)) },
       { label: () => `SOUND  ◀ ${sm.isEnabled() ? 'ON' : 'OFF'} ▶`, act: fx(() => sm.toggle()), adj: fx(() => sm.toggle()) },
       { label: () => `CRT  ◀ ${this.crtOn() ? 'ON' : 'OFF'} ▶`, act: fx(() => this.toggleCRT()), adj: fx(() => this.toggleCRT()) },
       { label: () => `REDUCED MOTION  ◀ ${Settings.reducedMotion.toUpperCase()} ▶`, act: fx(() => this.cycleReducedMotion(1)), adj: fx(d => this.cycleReducedMotion(d)) },
@@ -386,10 +391,11 @@ export class GameScene extends Phaser.Scene {
     if (this.paused) sm.pauseMusic();
     return m;
   }
-  private setSpeed(d: number, wrap = false): void {
+  private setSpeed(d: number, wrap = false): number {
     const n = CONFIG.SPEED_MULTIPLIERS.length;
     this.speedIndex = wrap ? (this.speedIndex + d + n) % n : Math.max(0, Math.min(n - 1, this.speedIndex + d));
     Settings.speedIndex = this.speedIndex;
+    return CONFIG.SPEED_MULTIPLIERS[this.speedIndex];
   }
   private artLabel(): string { return this.artChoice === AUTO ? 'AUTO TOUR' : this.theme.name.toUpperCase(); }
   private cycleTheme(d: number): void {
@@ -397,7 +403,7 @@ export class GameScene extends Phaser.Scene {
     this.themeIndex = (this.themeIndex + d + n) % n;
     Settings.theme = this.artChoice;
     this.applyTheme(this.resolveTheme());
-    if (!this.menu) this.showMessage(this.artLabel(), 1000);
+    if (!this.menu) this.showMessage(`LEVEL ART: ${this.artLabel()}`, SHORTCUT_MS);
     getSoundManager().playMenuSelect();
   }
 
