@@ -160,3 +160,73 @@ export function ropePole(ctx: Ctx, theme: Theme): void {
   for (let x = 0; x < 32; x++) for (let y = 3; y < 7; y++) if (((x + y) % 4) < 2) px(ctx, x, y, 1, 1, tint(c, 1.15));
   px(ctx, 0, 3, 32, 1, tint(c, 1.5), 0.6);
 }
+
+// ---------------------------------------------------------------- legacy-theme materials
+/** Neon Noir: rain-slick dark glass panels with neon reflections. */
+export function glassBrick(ctx: Ctx, theme: Theme, variant: number, trap: boolean): void {
+  const base = mix(tint(theme.brick, 1.25), 0x1a2030, 0.4), frame = shade(base, 0.35);
+  const rng = new Rng(71 + variant * 13);
+  px(ctx, 0, 0, 32, 32, frame);
+  for (let row = 0; row < 2; row++) {
+    const y = row * 16, off = row ? 8 : 0;
+    const spans = trap && row === 1 ? [[0, 32]] : row ? [[0, 8], [8, 16], [24, 8]] : [[0, 16], [16, 16]];
+    for (const [x, w] of spans) {
+      const c = tint(base, 1 + (rng.next() - 0.5) * 0.15);
+      block(ctx, x, y, w - 1, 15, c, frame, false, 1.5, 0.5);
+      px(ctx, x + 1, y, w - 3, 1, theme.ladder, 0.35);                 // neon catching the top edge
+      px(ctx, x + 1, y + 13, w - 3, 1, theme.gold, 0.22);              // pink reflection at the bottom
+      for (let k = 0; k < 6 && x + 3 + k < x + w - 2; k++) px(ctx, x + 3 + k, y + 10 - k, 1, 1, 0xffffff, 0.12); // glass glint
+    }
+    void off;
+  }
+  const drops = variant === 2 ? 9 : 4;
+  for (let i = 0; i < drops; i++) { const x = 1 + fl(rng.next() * 30), y = 1 + fl(rng.next() * 26); px(ctx, x, y, 1, 3, 0xbfd8ff, 0.35); px(ctx, x, y + 3, 1, 1, 0xffffff, 0.5); }
+  if (variant === 1) crack(ctx, rng, 0x8090a0);
+  else if (variant === 3) { px(ctx, 19, 4, 8, 1, theme.gold, 0.8); px(ctx, 22, 4, 1, 7, theme.gold, 0.8); px(ctx, 19, 8, 8, 1, theme.gold, 0.8); }
+}
+
+export function glassHard(ctx: Ctx, theme: Theme, variant: number): void {
+  const base = 0x2a2c34;
+  px(ctx, 0, 0, 32, 32, 0x050507);
+  block(ctx, 1, 1, 30, 30, base, 0, false, 1.9, 0.4);
+  for (let y = 4; y < 28; y += 2) px(ctx, 4, y, 24, 1, tint(base, 1.12), 0.6); // brushed gunmetal
+  const neon = variant ? theme.gold : theme.ladder;
+  px(ctx, 4, 4, 24, 1, neon, 0.9); px(ctx, 4, 27, 24, 1, neon, 0.9); px(ctx, 4, 4, 1, 24, neon, 0.9); px(ctx, 27, 4, 1, 24, neon, 0.9);
+  px(ctx, 3, 3, 26, 1, neon, 0.25); px(ctx, 3, 28, 26, 1, neon, 0.25);
+  for (const [x, y] of [[2, 2], [28, 2], [2, 28], [28, 28]]) px(ctx, x, y, 2, 2, 0xd0d8e8);
+}
+
+/** Sunset Chrome: polished chrome tiles reflecting a synthwave horizon. */
+export function chromeBrick(ctx: Ctx, theme: Theme, variant: number, trap: boolean): void {
+  const base = tint(theme.brick, 1.15), seam = shade(base, 0.3);
+  const rng = new Rng(83 + variant * 29);
+  const sky = 0xffa060, deep = shade(base, 0.6);
+  px(ctx, 0, 0, 32, 32, seam);
+  for (let row = 0; row < 2; row++) {
+    const y = row * 16, off = row ? 8 : 0;
+    const spans: number[][] = [];
+    if (trap && row === 1) spans.push([0, 32]);
+    else for (let bx = -off; bx < 32; bx += 16) { const x0 = Math.max(0, bx), x1 = Math.min(32, bx + 16); spans.push([x0, x1 - x0]); }
+    for (const [x, w] of spans) {
+      for (let k = 0; k < 15; k++) { // chrome: bright sky top -> dark band -> warm horizon reflection
+        const t = k / 14;
+        const c = t < 0.45 ? mix(tint(base, 1.6), deep, t / 0.45) : mix(deep, mix(base, sky, 0.55), (t - 0.45) / 0.55);
+        px(ctx, x, y + k, w - 1, 1, c);
+      }
+      px(ctx, x, y, w - 1, 1, 0xffffff, 0.55);
+      px(ctx, x, y + 14, w - 1, 1, shade(base, 0.45));
+    }
+  }
+  if (variant === 1) for (let i = 0; i < 6; i++) px(ctx, 5 + i * 3, 20 - i, 3, 1, 0xffffff, 0.45);
+  else if (variant === 2) for (let i = 0; i < 8; i++) px(ctx, fl(rng.next() * 31), fl(rng.next() * 31), 1, 1, 0xffffff, 0.6);
+  else if (variant === 3) for (const y of [5, 8, 11]) px(ctx, 18, y, 10, 1, theme.ladder, 0.75);
+}
+
+export function chromeHard(ctx: Ctx, theme: Theme, variant: number): void {
+  const base = theme.brickHard, grid = variant ? theme.ladder : 0xff44aa;
+  px(ctx, 0, 0, 32, 32, mix(0xc8c8d8, base, 0.3));
+  px(ctx, 0, 0, 32, 1, 0xffffff); px(ctx, 0, 31, 32, 1, 0x605070); px(ctx, 31, 0, 1, 32, 0x8070a0);
+  px(ctx, 3, 3, 26, 26, shade(base, 0.6));
+  for (let i = 3; i < 29; i += 6) { px(ctx, i, 3, 1, 26, grid, 0.8); px(ctx, 3, i, 26, 1, grid, 0.8); }
+  px(ctx, 3, 28, 26, 1, grid, 0.8); px(ctx, 28, 3, 1, 26, grid, 0.8);
+}

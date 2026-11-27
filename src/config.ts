@@ -156,7 +156,7 @@ export interface Theme {
   /** stable id (= THEMES key; filled in below) — used for texture cache keys and backdrops */
   id?: string;
   /** tile construction style: neon circuit bricks (default), dungeon stone, palace sandstone/marble, foundry steel */
-  material?: 'circuit' | 'stone' | 'palace' | 'metal';
+  material?: 'circuit' | 'stone' | 'palace' | 'metal' | 'glass' | 'chrome' | 'code';
 }
 
 export const THEMES: Record<string, Theme> = {
@@ -236,6 +236,7 @@ export const THEMES: Record<string, Theme> = {
     hudBg: 0x001100,
     glow: true,
     scanlines: true,
+    material: 'code',
   },
   sunset: {
     name: 'SUNSET CHROME',
@@ -250,6 +251,7 @@ export const THEMES: Record<string, Theme> = {
     hudText: 0xff8844,
     hudBg: 0x1a0a1a,
     glow: true,
+    material: 'chrome',
   },
   neon: {
     name: 'NEON NOIR',
@@ -265,6 +267,7 @@ export const THEMES: Record<string, Theme> = {
     hudText: 0xff0088,
     hudBg: 0x0a0a0a,
     glow: true,
+    material: 'glass',
   },
   classic: {
     name: 'CLASSIC C64',

@@ -9,12 +9,11 @@ const S = 512; // layer canvas size (power of two, tiles seamlessly)
 export class Background {
   private layers: { ts: Phaser.GameObjects.TileSprite; vx: number; vy: number }[] = [];
 
-  constructor(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, theme: Theme, w: number, h: number, private still: boolean) {
-    const id = theme.id ?? 'cyber';
-    const defs = DEFS[id] ?? DEFS.cyber;
-    Background.prepare(scene, theme);
+  constructor(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, theme: Theme, w: number, h: number, private still: boolean, variant = 0) {
+    const defs = Background.defs(theme, variant);
+    Background.prepare(scene, theme, variant);
     defs.forEach((d, i) => {
-      const key = `bg_${id}_${i}`;
+      const key = Background.texKey(theme, variant, i);
       const ts = scene.add.tileSprite(0, 0, w, h, key).setOrigin(0).setAlpha(d.alpha);
       parent.add(ts);
       this.layers.push({ ts, vx: d.vx, vy: d.vy });
@@ -22,10 +21,18 @@ export class Background {
   }
 
   /** Generate (and cache) the layer textures for `theme`. */
-  static prepare(scene: Phaser.Scene, theme: Theme): void {
+  /** number of backdrop variants a theme has */
+  static variants(theme: Theme): number { return DEFS_B[theme.id ?? ''] ? 2 : 1; }
+  private static v(theme: Theme, variant: number): number { return variant % Background.variants(theme); }
+  private static defs(theme: Theme, variant: number): LayerDef[] {
     const id = theme.id ?? 'cyber';
-    (DEFS[id] ?? DEFS.cyber).forEach((d, i) => {
-      const key = `bg_${id}_${i}`;
+    return Background.v(theme, variant) ? DEFS_B[id] : DEFS[id] ?? DEFS.cyber;
+  }
+  private static texKey(theme: Theme, variant: number, i: number): string { return `bg_${theme.id ?? 'cyber'}_v${Background.v(theme, variant)}_${i}`; }
+
+  static prepare(scene: Phaser.Scene, theme: Theme, variant = 0): void {
+    Background.defs(theme, variant).forEach((d, i) => {
+      const key = Background.texKey(theme, variant, i);
       if (scene.textures.exists(key)) return;
       const c = document.createElement('canvas'); c.width = c.height = S;
       d.draw(c.getContext('2d')!, theme, new Rng(1234 + i * 77));
@@ -180,4 +187,140 @@ const DEFS: Record<string, LayerDef[]> = {
       for (let k = 0; k < 70; k++) { c.fillStyle = rgba(0xa0a0ff, i ? 0.35 : 0.18); c.fillRect(Math.floor(r.next() * S), Math.floor(r.next() * S), i + 1, 1); }
     },
   })),
+};
+
+// ---------------------------------------------------------------- alternate backdrops (variant 1)
+// A set's backdrop alternates between DEFS and DEFS_B every 2–3 levels (fixed themes) or on each return (Auto Tour).
+const glow = (c: CanvasRenderingContext2D, x: number, y: number, r: number, col: number, a: number) => {
+  const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, rgba(col, a)); g.addColorStop(1, rgba(col, 0));
+  c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2);
+};
+const DEFS_B: Record<string, LayerDef[]> = {
+  cyber: [ // megatowers + sky traffic
+    { vx: 2, vy: 0, alpha: 1, draw: (c, t, r) => {
+      let x = 0;
+      while (x < S) {
+        const w = 40 + Math.floor(r.next() * 40), h = 280 + Math.floor(r.next() * 180);
+        c.fillStyle = rgba(mix(t.background, 0x2244aa, 0.16)); c.fillRect(x, S - h, Math.min(w, S - x) - 6, h);
+        c.fillStyle = rgba(t.ladder, 0.22); for (let sx = x + 6; sx < x + w - 10; sx += 10) c.fillRect(sx, S - h + 10, 2, h - 10);
+        c.fillStyle = rgba(0xff3355, 0.8); c.fillRect(x + (w >> 1) - 3, S - h - 14, 2, 14); c.fillRect(x + (w >> 1) - 4, S - h - 15, 4, 2);
+        x += w;
+      }
+    } },
+    { vx: 40, vy: 0, alpha: 0.8, draw: (c, _t, r) => {
+      for (const y of [130, 170, 215, 260]) for (let i = 0; i < 10; i++) {
+        c.fillStyle = rgba(r.next() < 0.5 ? 0xffffff : 0xff44cc, 0.35 + r.next() * 0.3);
+        c.fillRect(Math.floor(r.next() * S), y + Math.floor(r.next() * 6), 6 + Math.floor(r.next() * 10), 1);
+      }
+    } },
+  ],
+  neon: [ // sign alley
+    { vx: 2, vy: 0, alpha: 1, draw: (c, _t, r) => {
+      skyline(c, r, S, 120, 300, 0x0c0c10, 0x00ffff, 0.2, 24, 60);
+      for (let i = 0; i < 9; i++) {
+        const x = Math.floor(r.next() * (S - 20)), y = 150 + Math.floor(r.next() * 220), col = i % 2 ? 0x00ffff : 0xff0088;
+        c.strokeStyle = rgba(col, 0.4); c.lineWidth = 2; c.strokeRect(x, y, 14, 54);
+        c.fillStyle = rgba(col, 0.3); for (let k = 0; k < 4; k++) c.fillRect(x + 4, y + 5 + k * 12, 6, 7);
+      }
+      c.strokeStyle = rgba(0x303040, 0.8); c.lineWidth = 1;
+      for (const y of [110, 140]) { c.beginPath(); c.moveTo(0, y); c.quadraticCurveTo(S / 2, y + 40, S, y); c.stroke(); }
+    } },
+    { vx: -30, vy: -160, alpha: 0.5, draw: (c, _t, r) => {
+      c.fillStyle = rgba(0x8899bb, 0.25);
+      for (let i = 0; i < 160; i++) c.fillRect(Math.floor(r.next() * S), Math.floor(r.next() * S), 1, 6);
+    } },
+  ],
+  matrix: [ // circuit traces + slow falling bits
+    { vx: 0, vy: 0, alpha: 1, draw: (c, t, r) => {
+      for (let n = 0; n < 26; n++) {
+        let x = Math.floor(r.next() * 32) * 16, y = Math.floor(r.next() * 32) * 16;
+        c.fillStyle = rgba(t.ladder, 0.16);
+        for (let s = 0; s < 6; s++) {
+          const horiz = r.next() < 0.5, len = (1 + Math.floor(r.next() * 4)) * 16;
+          if (horiz) { c.fillRect(Math.min(x, x + len), y, len, 2); x = (x + len) % S; } else { c.fillRect(x, y, 2, len); y = (y + len) % S; }
+        }
+        c.fillStyle = rgba(t.ladder, 0.45); c.fillRect(x - 1, y - 1, 4, 4);
+      }
+    } },
+    { vx: 0, vy: -24, alpha: 0.5, draw: (c, t, r) => {
+      for (let i = 0; i < 120; i++) { c.fillStyle = rgba(t.ladder, 0.15 + r.next() * 0.3); c.fillRect(Math.floor(r.next() * S / 6) * 6, Math.floor(r.next() * S), 2, 2); }
+    } },
+  ],
+  sunset: [ // palm beach at dusk
+    { vx: 0, vy: 0, alpha: 1, draw: (c, t) => {
+      const g = c.createLinearGradient(0, 0, 0, 400); g.addColorStop(0, rgba(t.background, 0)); g.addColorStop(1, rgba(0xa02a6a, 0.45));
+      c.fillStyle = g; c.fillRect(0, 0, S, 400);
+      glow(c, 256, 380, 120, 0xffb040, 0.35);
+      c.fillStyle = rgba(0x1a0a30, 0.9); c.fillRect(0, 400, S, S - 400);
+      for (let y = 404; y < S; y += 6) { const hw = 70 - (y - 400) * 0.35; c.fillStyle = rgba(0xff9040, 0.25); c.fillRect(256 - hw, y, hw * 2, 2); }
+    } },
+    { vx: 5, vy: 0, alpha: 1, draw: (c, t) => {
+      const col = rgba(mix(t.background, 0x000000, 0.5));
+      for (const [bx, lean] of [[70, 1], [200, -1], [420, 1]]) {
+        c.fillStyle = col; let x = bx;
+        for (let y = 400; y > 250; y -= 4) { c.fillRect(x, y, 6, 5); x += lean * (400 - y) / 120; }
+        c.strokeStyle = col; c.lineWidth = 3;
+        for (const [dx, dy] of [[-40, 18], [40, 18], [-30, -14], [32, -12], [0, -24]]) { c.beginPath(); c.moveTo(x + 3, 252); c.quadraticCurveTo(x + 3 + dx / 2, 240 + dy / 3, x + 3 + dx, 252 + dy); c.stroke(); }
+      }
+    } },
+  ],
+  dungeon: [ // crypt: barred cells and skull niches
+    { vx: 2, vy: 0, alpha: 1, draw: (c, t, r) => {
+      const wall = mix(t.background, t.brick, 0.2);
+      for (let y = 0; y < S; y += 24) for (let x = (y / 24) % 2 ? -24 : 0; x < S; x += 48) { c.fillStyle = rgba(mix(wall, 0x000000, r.next() * 0.25)); c.fillRect(x + 1, y + 1, 46, 22); }
+      for (let x = 8; x < S; x += 32) { // skull niches
+        c.fillStyle = rgba(0x000000, 0.55); c.fillRect(x, 100, 18, 16);
+        c.fillStyle = rgba(0xd8cfb8, 0.35); c.fillRect(x + 5, 104, 8, 6); c.fillRect(x + 6, 110, 6, 3);
+        c.fillStyle = rgba(0x000000, 0.6); c.fillRect(x + 6, 106, 2, 2); c.fillRect(x + 10, 106, 2, 2);
+      }
+      for (let ax = 24; ax < S; ax += 128) { // portcullis cells
+        c.fillStyle = rgba(mix(t.background, 0x000000, 0.55)); c.fillRect(ax, 230, 80, S - 230);
+        c.fillStyle = rgba(0x40404a, 0.8); for (let bx = ax + 6; bx < ax + 80; bx += 12) c.fillRect(bx, 230, 3, S - 230);
+        c.fillRect(ax, 280, 80, 3); c.fillRect(ax, 380, 80, 3);
+        glow(c, ax + 104, 250, 40, 0x60a0ff, 0.18); // cold lantern
+      }
+    } },
+    { vx: 0, vy: 10, alpha: 0.55, draw: (c, _t, r) => {
+      for (let i = 0; i < 50; i++) { c.fillStyle = rgba(0x9ab8d8, 0.25 + r.next() * 0.4); c.fillRect(Math.floor(r.next() * S), Math.floor(r.next() * S), 1, 2); }
+    } },
+  ],
+  palace: [ // throne hall: lattice windows, light shafts, banners
+    { vx: 1, vy: 0, alpha: 1, draw: (c, t) => {
+      for (let wx = 40; wx < S; wx += 128) {
+        c.fillStyle = rgba(0xffd890, 0.06);
+        c.beginPath(); c.moveTo(wx, 140); c.lineTo(wx + 36, 140); c.lineTo(wx + 110, S); c.lineTo(wx + 40, S); c.closePath(); c.fill();
+        c.fillStyle = rgba(mix(t.background, 0xffc070, 0.25)); c.beginPath(); c.arc(wx + 18, 70, 18, Math.PI, 0); c.fillRect(wx, 70, 36, 70); c.fill();
+        c.fillStyle = rgba(mix(t.background, 0x000000, 0.3)); for (let k = 0; k < 5; k++) { c.fillRect(wx + 2 + k * 8, 56, 2, 84); c.fillRect(wx, 74 + k * 14, 36, 2); }
+      }
+    } },
+    { vx: 6, vy: 0, alpha: 1, draw: (c, t) => {
+      const trim = mix(t.background, t.pole, 0.45);
+      for (let bx = 100; bx < S; bx += 128) {
+        c.fillStyle = rgba(trim); c.fillRect(bx - 4, 30, 34, 4);
+        c.fillStyle = rgba(mix(t.background, 0x8a1a2a, 0.5)); c.fillRect(bx, 34, 26, 140);
+        c.beginPath(); c.moveTo(bx, 174); c.lineTo(bx + 13, 190); c.lineTo(bx + 26, 174); c.fill();
+        c.fillStyle = rgba(trim); c.fillRect(bx + 2, 36, 2, 136); c.fillRect(bx + 22, 36, 2, 136);
+        c.beginPath(); c.arc(bx + 13, 90, 6, 0, Math.PI * 2); c.fill();
+      }
+    } },
+    { vx: 9, vy: -3, alpha: 0.5, draw: (c, _t, r) => {
+      for (let i = 0; i < 90; i++) { c.fillStyle = rgba(0xffe0a0, 0.15 + r.next() * 0.35); c.fillRect(Math.floor(r.next() * S), Math.floor(r.next() * S), 1, 1); }
+    } },
+  ],
+  foundry: [ // nebula, orbital ring, cargo yard
+    { vx: 1, vy: 0, alpha: 1, draw: (c, _t, r) => {
+      glow(c, 150, 180, 160, 0x7a3aa0, 0.22); glow(c, 380, 300, 140, 0x2a8a9a, 0.18);
+      for (let i = 0; i < 220; i++) { c.fillStyle = rgba(0xd0e0ff, 0.2 + r.next() * 0.6); c.fillRect(Math.floor(r.next() * S), Math.floor(r.next() * S), 1, 1); }
+      c.strokeStyle = rgba(0xa0c0ff, 0.22); c.lineWidth = 3; c.beginPath(); c.ellipse(256, 160, 230, 40, -0.12, 0, Math.PI * 2); c.stroke();
+    } },
+    { vx: 8, vy: 0, alpha: 1, draw: (c, t, r) => {
+      const m = mix(t.background, 0x8090a0, 0.2);
+      for (let x = 0; x < S; x += 64) {
+        const stack = 1 + Math.floor(r.next() * 3);
+        for (let k = 0; k < stack; k++) { c.fillStyle = rgba(mix(m, k % 2 ? 0x803020 : 0x204060, 0.25)); c.fillRect(x + 2, S - 30 - k * 30, 58, 28); c.fillStyle = rgba(0x000000, 0.25); for (let s = x + 6; s < x + 58; s += 6) c.fillRect(s, S - 28 - k * 30, 1, 24); }
+      }
+      c.fillStyle = rgba(m); c.fillRect(300, 120, 8, S - 120); c.fillRect(200, 120, 180, 6); c.fillRect(220, 126, 2, 80);
+      for (let i = 0; i < 10; i++) { c.fillStyle = rgba(t.ladder, 0.6 + r.next() * 0.3); c.fillRect(200 + Math.floor(r.next() * 180), 118, 2, 2); }
+    } },
+  ],
 };

@@ -18,6 +18,7 @@ export class AttractDemo {
   private restartAt = 0;
   private lastGoldTick = 0;
   private n = 0;
+  private viewVariant = -1;
   private viewTheme: import("../config").Theme | null = null;
 
   constructor(private scene: Phaser.Scene) {
@@ -26,7 +27,9 @@ export class AttractDemo {
     // Auto Tour: each demo round shows the next environment.
     scene.events.on('update', () => {
       const t = this.pickTheme();
-      if (t && t !== this.viewTheme) { this.viewTheme = t; this.view.setTheme(t); scene.cameras.main.setBackgroundColor(t.background); }
+      // backdrop variant: Auto Tour shows the other backdrop on each lap of the pool; a fixed theme alternates per round
+      const v = Settings.theme === 'auto' ? Math.floor(this.n / TOUR_POOL.length) : this.n;
+      if (t && (t !== this.viewTheme || v !== this.viewVariant)) { this.viewTheme = t; this.viewVariant = v; this.view.setTheme(t, v); scene.cameras.main.setBackgroundColor(t.background); }
     });
     this.next(scene.time.now);
   }

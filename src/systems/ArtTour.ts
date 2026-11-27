@@ -13,12 +13,14 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
-export interface TourStop { key: string; chapter: number; first: boolean }
+/** chapter = index of the 2–3 level block; visit = how many earlier chapters used this same key (picks the backdrop variant) */
+export interface TourStop { key: string; chapter: number; first: boolean; visit: number }
 
 /** Environment for `level` (1-based) of the run with `seed`. Shuffled bag, chapters of 2–3 levels, no repeats back-to-back. */
 export function tourAt(seed: string, level: number, pool: string[] = TOUR_POOL): TourStop {
   const rng = new Rng(hash(`${seed}|${VERSION}`));
   let bag: string[] = [], last = '', start = 1, chapter = 0;
+  const visits: Record<string, number> = {};
   for (;;) {
     if (!bag.length) {
       bag = pool.slice();
@@ -27,7 +29,8 @@ export function tourAt(seed: string, level: number, pool: string[] = TOUR_POOL):
     }
     const key = bag.shift()!;
     const len = rng.next() < 0.5 ? 2 : 3;
-    if (level < start + len) return { key, chapter, first: level === start };
+    if (level < start + len) return { key, chapter, first: level === start, visit: visits[key] ?? 0 };
+    visits[key] = (visits[key] ?? 0) + 1;
     last = key; start += len; chapter++;
   }
 }

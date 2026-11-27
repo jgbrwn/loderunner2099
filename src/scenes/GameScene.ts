@@ -94,6 +94,7 @@ export class GameScene extends Phaser.Scene {
     this.tvKey = '';
     this.themeIndex = Math.max(0, this.themeKeys.indexOf(Settings.theme));
     this.theme = this.resolveTheme();
+    this.bgVariant = 0;
     this.speedIndex = Settings.speedIndex;
   }
 
@@ -171,10 +172,17 @@ export class GameScene extends Phaser.Scene {
   private resolveTheme(level = this.level): Theme {
     return this.artChoice === AUTO ? THEMES[tourAt(this.seedCode, level).key] : THEMES[this.artChoice];
   }
-  private applyTheme(theme: Theme): void {
-    this.theme = theme;
+  /** Backdrop variant: Auto Tour shows the other backdrop when it revisits a set; a fixed theme alternates
+   *  backdrops every 2–3 levels (same chapter rhythm as the tour). */
+  private resolveBgVariant(level = this.level): number {
+    const stop = tourAt(this.seedCode, level);
+    return this.artChoice === AUTO ? stop.visit : stop.chapter;
+  }
+  private bgVariant = 0;
+  private applyTheme(theme: Theme, bgVariant = this.resolveBgVariant()): void {
+    this.theme = theme; this.bgVariant = bgVariant;
     this.cameras.main.setBackgroundColor(theme.background);
-    for (const b of this.boards) { b.view.setTheme(theme); b.hud?.setTheme(theme); }
+    for (const b of this.boards) { b.view.setTheme(theme, bgVariant); b.hud?.setTheme(theme); }
     if (this.mode === 'versus') this.buildVersusHud();
     this.crtEffect.applyTheme(theme);
     this.crtEffect.setEnabled(Settings.crt);
@@ -187,15 +195,14 @@ export class GameScene extends Phaser.Scene {
   }
   /** Build the next level's art during the level-complete outro so the switch doesn't hitch. */
   private prewarmTheme(level: number): void {
-    const t = this.resolveTheme(level);
-    if (t === this.theme) return;
-    new TileGraphics(this).generateTextures(t);
-    Background.prepare(this, t);
+    const t = this.resolveTheme(level), v = this.resolveBgVariant(level);
+    if (t !== this.theme) new TileGraphics(this).generateTextures(t);
+    Background.prepare(this, t, v);
   }
 
   private newLevel(): void {
-    const next = this.resolveTheme();
-    if (next !== this.theme) this.applyTheme(next);
+    const next = this.resolveTheme(), v = this.resolveBgVariant();
+    if (next !== this.theme || v % Background.variants(next) !== this.bgVariant % Background.variants(next)) this.applyTheme(next, v);
     if (this.artChoice === AUTO && (this.level === 1 || tourAt(this.seedCode, this.level).first)) this.showZone();
     const gen = new LevelGenerator(`${this.seedCode}-L${this.level}`, this.difficulty, this.level);
     this.levelMap = gen.generateWithInfo().map;

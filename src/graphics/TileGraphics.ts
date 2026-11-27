@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Theme } from '../config';
 import { drawCharacterFrames } from './CharacterArt';
 import { rgba, shade, tint, mix, Rng } from './color';
-import { stoneBrick, palaceBrick, metalBrick, stoneHard, palaceHard, metalHard, woodLadder, chainPole, ropePole } from './Materials';
+import { stoneBrick, palaceBrick, metalBrick, stoneHard, palaceHard, metalHard, woodLadder, chainPole, ropePole, glassBrick, glassHard, chromeBrick, chromeHard } from './Materials';
 
 const C = 32;          // atlas cell size
 const COLS = 16;
@@ -101,6 +101,8 @@ function drawBrick(ctx: Ctx, theme: Theme, variant: number, trap = false): void 
   if (theme.material === 'stone') return stoneBrick(ctx, theme, variant, trap);
   if (theme.material === 'palace') return palaceBrick(ctx, theme, variant, trap);
   if (theme.material === 'metal') return metalBrick(ctx, theme, variant, trap);
+  if (theme.material === 'glass') return glassBrick(ctx, theme, variant, trap);
+  if (theme.material === 'chrome') return chromeBrick(ctx, theme, variant, trap);
   const base = tint(theme.brick, 1.12);
   const mortar = shade(base, 0.35);
   const rng = new Rng(17 + variant * 101);
@@ -127,7 +129,16 @@ function drawBrick(ctx: Ctx, theme: Theme, variant: number, trap = false): void 
   } else if (variant === 2) { // chipped corners + specks
     px(ctx, 0, 0, 3, 2, mortar); px(ctx, 0, 2, 1, 1, mortar); px(ctx, 29, 24, 3, 2, mortar);
     for (let i = 0; i < 10; i++) px(ctx, Math.floor(rng.next() * 32), Math.floor(rng.next() * 32), 1, 1, tint(base, rng.next() < 0.5 ? 0.6 : 1.4));
-  } else if (variant === 3) { // neon inlay
+  }
+  if (theme.material === 'code') { // Matrix: glyphs etched into every brick face
+    const g = mix(base, theme.ladder, 0.55);
+    for (let row = 0; row < 4; row++) for (let gx = (row % 2 ? 3 : 4); gx < 29; gx += 8) {
+      if (rng.next() < 0.35) continue;
+      for (let k = 0; k < 6; k++) if (rng.next() < 0.55) px(ctx, gx + (k % 2), row * 8 + 2 + (k >> 1), 1, 1, g, 0.85);
+    }
+    return;
+  }
+  if (variant === 3) { // neon inlay
     const g = theme.ladder;
     px(ctx, 19, 11, 8, 1, g, 0.55); px(ctx, 26, 11, 1, 4, g, 0.55); px(ctx, 26, 15, 1, 1, g, 0.9);
     px(ctx, 18, 10, 2, 3, g, 0.25);
@@ -144,6 +155,8 @@ function drawHard(ctx: Ctx, theme: Theme, variant: number): void {
   if (theme.material === 'stone') return stoneHard(ctx, theme, variant);
   if (theme.material === 'palace') return palaceHard(ctx, theme, variant);
   if (theme.material === 'metal') return metalHard(ctx, theme, variant);
+  if (theme.material === 'glass') return glassHard(ctx, theme, variant);
+  if (theme.material === 'chrome') return chromeHard(ctx, theme, variant);
   const base = mix(theme.brickHard, 0x8090a8, 0.3);
   px(ctx, 0, 0, 32, 32, shade(base, 0.3));
   // plate with vertical gradient
@@ -160,6 +173,10 @@ function drawHard(ctx: Ctx, theme: Theme, variant: number): void {
     px(ctx, 14, 14, 4, 4, mix(base, theme.ladder, 0.25));
   } else { // grooves
     for (const y of [10, 15, 20]) { px(ctx, 8, y, 16, 1, shade(base, 0.55)); px(ctx, 8, y + 1, 16, 1, tint(base, 1.4)); }
+  }
+  if (theme.material === 'code') { // Matrix: a data-core readout across the plate
+    const r = new Rng(5 + variant);
+    for (let y = 9; y < 23; y += 2) for (let x = 9; x < 23; x += 2) if (r.next() < 0.5) px(ctx, x, y, 1, 1, theme.ladder, 0.7);
   }
 }
 
