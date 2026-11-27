@@ -26,7 +26,7 @@ import android.widget.Toast;
 /**
  * Lode Runner 2099 for Android TV: a fullscreen WebView on PUBLIC_URL/tv?app=1.
  * D-pad / OK / media keys and Bluetooth keyboard keys go to the page as normal key events.
- * Full desktop shortcuts work on a BT keyboard: arrows/WASD, Z/X dig, P pause, T theme,
+ * Full desktop shortcuts work on a BT keyboard: arrows/WASD/numpad 8-2-4-6, Z/X or numpad 7/9 dig, P pause, T level art,
  * C CRT, M sound, B music, R restart, N new seed and +/- speed. BACK calls window.lr2099OnBack() if the page
  * defines it (return true = handled); otherwise press BACK twice to exit. MENU = change server URL.
  * The page sees window.LR2099TV {version(), serverUrl(), exit()} — only pages on the configured server host load.
@@ -130,6 +130,11 @@ public class MainActivity extends Activity {
             padPlayer.clear(); padPlayers = 0; // re-assign on next input
         }
         @JavascriptInterface public boolean gamepadSeen() { return !padPlayer.isEmpty(); }
+        /** true if any BT controller is connected now (even if no button was pressed since launch) */
+        @JavascriptInterface public boolean gamepadConnected() {
+            for (int id : InputDevice.getDeviceIds()) if (isGamepad(id)) return true;
+            return false;
+        }
         @JavascriptInterface public String lastKey() { return lastKeyDebug; }
         @JavascriptInterface public String inputDevices() {
             StringBuilder sb = new StringBuilder();
@@ -161,8 +166,9 @@ public class MainActivity extends Activity {
     private int playerFor(int deviceId) {
         Integer p = padPlayer.get(deviceId);
         if (p != null) return p;
+        // remote/keyboard = P1: first controller -> P2, a second controller -> P1 (so two pads = one each).
         int base = remoteIsP1 ? 1 : 0;
-        int slot = Math.min(base + padPlayers++, 1);
+        int slot = (base + padPlayers++) % 2;
         padPlayer.put(deviceId, slot);
         return slot;
     }
@@ -172,11 +178,6 @@ public class MainActivity extends Activity {
         if (d == null) return false;
         int s = d.getSources();
         String n = d.getName() == null ? "" : d.getName().toLowerCase();
-        // A Bluetooth keyboard must stay on the WebView key path: letter keys are shortcuts
-        // (T/C/M/B/R/N/+/-), arrows/WASD and Z/X are gameplay. Some combo devices advertise
-        // joystick axes too; their keyboard letters must not be swallowed as gamepad buttons.
-        boolean keyboard = (s & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
-        if (keyboard && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return false;
         // A TV remote (Onn/Google TV) is NOT a gamepad even though it exposes SOURCE_DPAD and a
         // "controller"-ish name. Exclude it explicitly so it stays on the normal remote/key path.
         boolean remote = n.contains("remote") || n.contains("onn") || n.contains("google tv")
@@ -188,6 +189,19 @@ public class MainActivity extends Activity {
         boolean named = n.contains("8bitdo") || n.contains("pro controller") || n.contains("switch")
             || n.contains("gamepad") || n.contains("joystick");
         return named && (s & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD;
+    }
+
+    /** Bluetooth keyboards/keypads stay on the WebView key path (letters are shortcuts; arrows, WASD, Z/X and the
+     *  numpad 8/2/4/6 + 7/9 are gameplay). Decided per KEY EVENT, not per device: a combo device (keyboard with a stick,
+     *  or a pad that also advertises an alphabetic keyboard) keeps its gamepad buttons/sticks on the controller path
+     *  while its typing keys still reach the page. */
+    private boolean isGamepadKey(KeyEvent e) {
+        if (!isGamepad(e.getDeviceId())) return false;
+        if (KeyEvent.isGamepadButton(e.getKeyCode())) return true; // A/B/X/Y, shoulders, start/select
+        // Key source flags can't be trusted here: Android tags every key of a combo device KEYBOARD|GAMEPAD.
+        InputDevice d = InputDevice.getDevice(e.getDeviceId());
+        boolean alpha = d != null && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+        return !alpha; // plain controller: its D-pad too. Alphabetic combo: letters/arrows/numpad go to the page.
     }
 
     // singlePlayer mirrors every controller onto player 0 so a BT gamepad always works in 1P,
@@ -234,7 +248,6 @@ public class MainActivity extends Activity {
 
     // Gamepad buttons arrive as KeyEvent with gamepad source.
     private boolean handleGamepadKey(KeyEvent e) {
-        if (!isGamepad(e.getDeviceId())) return false;
         int player = playerFor(e.getDeviceId());
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (e.getRepeatCount() > 0) return true; // ignore auto-repeat
@@ -269,8 +282,9 @@ public class MainActivity extends Activity {
     public boolean dispatchKeyEvent(KeyEvent e) {
         int code = e.getKeyCode();
         InputDevice kd = InputDevice.getDevice(e.getDeviceId());
-        lastKeyDebug = (kd == null ? "?" : kd.getName()) + " code=" + code + " gamepad=" + isGamepad(e.getDeviceId());
-        if (isGamepad(e.getDeviceId())) return handleGamepadKey(e);
+        boolean padKey = isGamepadKey(e);
+        lastKeyDebug = (kd == null ? "?" : kd.getName()) + " code=" + code + " gamepad=" + padKey;
+        if (padKey) return handleGamepadKey(e);
         if (code == KeyEvent.KEYCODE_MENU || code == KeyEvent.KEYCODE_SETTINGS) {
             if (e.getAction() == KeyEvent.ACTION_UP) showUrlDialog();
             return true;

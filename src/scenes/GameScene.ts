@@ -105,7 +105,11 @@ export class GameScene extends Phaser.Scene {
     this.events.once('shutdown', this.cleanup, this);
     const input = getInput();
     input.keyboard && (input.keyboard.letters = true);
-    if (this.tvMode && this.numPlayers === 2 && (window as any).LR2099TV?.gamepadSeen?.()) input.setTVRemoteP1();
+    // Android TV app: a connected BT controller is P2 and the remote + keyboard/keypad are P1. Ask whether one is
+    // *connected* (APK 1.0.124+), not merely used since launch; older APKs only know gamepadSeen().
+    const atv = (window as any).LR2099TV;
+    const padReady = atv?.gamepadConnected ? atv.gamepadConnected() : atv?.gamepadSeen?.();
+    if (this.tvMode && this.numPlayers === 2 && padReady) input.setTVRemoteP1();
     else input.setTwoPlayerKeys(this.numPlayers === 2);
     input.swallow();
     getSoundManager().resume();

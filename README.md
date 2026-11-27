@@ -43,14 +43,17 @@ installable offline PWA.
 
 | Action | Keyboard (1P) | Gamepad |
 |---|---|---|
-| Move | Arrows / WASD | D-pad / stick |
-| Dig left / right | Z / X (or Q / E) | X / B, LB / RB, LT / RT |
+| Move | Arrows / WASD / numpad 8 2 4 6 | D-pad / stick |
+| Dig left / right | Z / X (or Q / E, or numpad 7 / 9 like the original PC version) | X / B, LB / RB, LT / RT |
 | Pause menu | P / Esc | Start |
 | Level art / CRT / Speed | T / C / + − | — |
 | Mute / music mode | M / B | — |
 | Restart level / new seed | R / N | — |
 
-2-player on one keyboard: P1 = WASD + Q/E, P2 = arrows + `,`/`.` (or IJKL + U/O).
+2-player on one keyboard: P1 = WASD + Q/E, P2 = arrows + `,`/`.` (or IJKL + U/O, or the numpad).
+
+Android TV couch 2-player with a BT controller connected: the TV remote and any BT keyboard/keypad (all key sets,
+numpad included) are P1, the first controller is P2. Two controllers = one per player.
 
 **Goal:** collect all gold, then climb the exit ladder that appears to the top. Dig holes to trap guards — but don't
 get caught when the hole refills.

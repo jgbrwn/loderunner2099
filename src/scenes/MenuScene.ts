@@ -110,7 +110,7 @@ export class MenuScene extends Phaser.Scene {
   private twoPage(): Page {
     return {
       title: '2 PLAYERS',
-      body: 'P1: WASD + Q/E  ·  P2: ARROWS / IJKL + U/O<br>or gamepads',
+      body: 'P1: WASD + Q/E  ·  P2: ARROWS / IJKL + U/O / NUMPAD<br>or gamepads',
       items: [
         { label: 'CO-OP  (ONE BOARD)', act: () => this.ui!.push(this.diffPage('coop')) },
         { label: 'VERSUS (SPLIT SCREEN)', act: () => this.ui!.push(this.diffPage('versus')) },
@@ -210,8 +210,8 @@ export class MenuScene extends Phaser.Scene {
 
   private controlsPage(): Page {
     const rows = [
-      ['MOVE', 'ARROWS / WASD · D-PAD · STICK'], ['DIG LEFT / RIGHT', 'Z X · Q E · A B · ⏪ ⏩'],
-      ['PAUSE', 'P · START · ⏯'], ['MENU', 'ESC ×2 · BACK'], ['SPEED', '+ / −'], ['LEVEL ART · CRT', 'T · C'],
+      ['MOVE', 'ARROWS / WASD · D-PAD · STICK'], ['DIG L / R', 'Z X · Q E · A B · ⏪ ⏩'], ['NUMPAD', '8 2 4 6 MOVE · 7 9 DIG'],
+      ['PAUSE', 'P · START · ⏯'], ['MENU', 'ESC ×2 · BACK'], ['SPEED', '+ / −'], ['ART · CRT', 'T · C'],
       ['MUTE · MUSIC', 'M · B'], ['PHONE PAD', 'TV MENU → PAIR'],
     ];
     return {

@@ -23,22 +23,27 @@ const SYSTEM: Pick<KeyBindings, 'pause' | 'back' | 'confirm'> = {
   back: ['Escape', 'Backspace', 'GoBack', 'BrowserBack'],
   confirm: ['Enter', 'NumpadEnter', 'Space'],
 };
+/** Original IBM-PC Lode Runner numeric keypad: 8/2/4/6 move, 7 dig left, 9 dig right. Matched by KeyboardEvent.code,
+ *  so it works with NumLock on or off (and on Bluetooth keypads, whose code is Numpad* too). */
+export const NUMPAD = { left: ['Numpad4'], right: ['Numpad6'], up: ['Numpad8'], down: ['Numpad2'], digLeft: ['Numpad7'], digRight: ['Numpad9'] };
 export const DEFAULT_BINDINGS: KeyBindings[] = [
-  { // P1: arrows + WASD, dig Z/X or Q/E; TV remote media keys dig
-    left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
-    digLeft: ['KeyZ', 'KeyQ', 'MediaRewind', 'MediaTrackPrevious', 'ChannelUp'],
-    digRight: ['KeyX', 'KeyE', 'MediaFastForward', 'MediaTrackNext', 'ChannelDown'], ...SYSTEM,
+  { // P1: arrows + WASD + numpad, dig Z/X, Q/E or numpad 7/9; TV remote media keys dig
+    left: ['ArrowLeft', 'KeyA', ...NUMPAD.left], right: ['ArrowRight', 'KeyD', ...NUMPAD.right],
+    up: ['ArrowUp', 'KeyW', ...NUMPAD.up], down: ['ArrowDown', 'KeyS', ...NUMPAD.down],
+    digLeft: ['KeyZ', 'KeyQ', ...NUMPAD.digLeft, 'MediaRewind', 'MediaTrackPrevious', 'ChannelUp'],
+    digRight: ['KeyX', 'KeyE', ...NUMPAD.digRight, 'MediaFastForward', 'MediaTrackNext', 'ChannelDown'], ...SYSTEM,
   },
   { // P2: IJKL, dig U/O
     left: ['KeyJ'], right: ['KeyL'], up: ['KeyI'], down: ['KeyK'], digLeft: ['KeyU'], digRight: ['KeyO'],
     pause: [], back: [], confirm: [],
   },
 ];
-/** In 2-player mode P1 gives the arrows to nobody else; P2 also gets arrows + , . when P1 uses WASD. */
+/** Shared keyboard, 2 players: P1 = WASD (dig Q/E or Z/X), P2 = arrows/IJKL/numpad (dig , . / U O / numpad 7 9). */
 export const TWO_PLAYER_BINDINGS: KeyBindings[] = [
   { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], digLeft: ['KeyQ', 'KeyZ'], digRight: ['KeyE', 'KeyX'], ...SYSTEM },
-  { left: ['ArrowLeft', 'KeyJ'], right: ['ArrowRight', 'KeyL'], up: ['ArrowUp', 'KeyI'], down: ['ArrowDown', 'KeyK'],
-    digLeft: ['Comma', 'KeyU'], digRight: ['Period', 'KeyO'], pause: [], back: [], confirm: [] },
+  { left: ['ArrowLeft', 'KeyJ', ...NUMPAD.left], right: ['ArrowRight', 'KeyL', ...NUMPAD.right],
+    up: ['ArrowUp', 'KeyI', ...NUMPAD.up], down: ['ArrowDown', 'KeyK', ...NUMPAD.down],
+    digLeft: ['Comma', 'KeyU', ...NUMPAD.digLeft], digRight: ['Period', 'KeyO', ...NUMPAD.digRight], pause: [], back: [], confirm: [] },
 ];
 
 export class KeyboardSource implements InputSource {
@@ -164,11 +169,11 @@ export class InputManager {
     return () => { this.extra = this.extra.filter(x => x !== s); };
   }
   setTwoPlayerKeys(on: boolean): void { this.keyboard?.setBindings(on ? TWO_PLAYER_BINDINGS : DEFAULT_BINDINGS); }
-  /** Android TV: remote (arrows) drives P1, BT controller (native) drives P2. */
+  /** Android TV 2P with a BT controller: the remote and any keyboard/keypad (every key set) drive P1; the native
+   *  controller drives P2. The keyboard must not also drive P2, or one key would move both players. */
   setTVRemoteP1(): void {
-    const p1: KeyBindings = { ...DEFAULT_BINDINGS[0] };           // arrows + media keys
-    const p2: KeyBindings = { ...TWO_PLAYER_BINDINGS[0], pause: [], back: [], confirm: [] }; // WASD unused on TV
-    this.keyboard?.setBindings([p1, p2]);
+    const none: KeyBindings = { left: [], right: [], up: [], down: [], digLeft: [], digRight: [], pause: [], back: [], confirm: [] };
+    this.keyboard?.setBindings([{ ...DEFAULT_BINDINGS[0] }, none]);
   }
   /** Call once per frame before reading. */
   update(): void {

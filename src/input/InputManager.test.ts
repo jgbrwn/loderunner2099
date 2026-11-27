@@ -57,4 +57,35 @@ describe('InputManager', () => {
     im.update();
     expect(im.get(0).left || im.get(0).right).toBe(false);
   });
+  it('numpad: 8/2/4/6 move, 7/9 dig (original PC layout), NumLock on or off', () => {
+    const w = new FakeWin();
+    const im = new InputManager(w as unknown as Window);
+    const press = (code: string, keyName = code) => { const e = new Event('keydown') as any; e.code = code; e.key = keyName; e.preventDefault = () => {}; w.dispatchEvent(e); };
+    const release = (code: string, keyName = code) => { const e = new Event('keyup') as any; e.code = code; e.key = keyName; w.dispatchEvent(e); };
+    const cases: [string, string, string][] = [['Numpad8', '8', 'up'], ['Numpad2', '2', 'down'], ['Numpad4', '4', 'left'],
+      ['Numpad6', '6', 'right'], ['Numpad7', '7', 'digLeft'], ['Numpad9', '9', 'digRight'],
+      ['Numpad7', 'Home', 'digLeft'], ['Numpad9', 'PageUp', 'digRight'], ['Numpad4', 'ArrowLeft', 'left']]; // NumLock off
+    for (const [code, k, action] of cases) {
+      press(code, k); im.update();
+      expect((im.get(0) as any)[action], `${code}/${k}`).toBe(true);
+      release(code, k); im.update(); im.update();
+      expect((im.get(0) as any)[action]).toBe(false);
+    }
+    im.keyboard!.letters = false; // typing in a text field never blocks the numpad
+    press('Numpad7'); im.update(); expect(im.get(0).digLeft).toBe(true); release('Numpad7');
+    // shared keyboard 2P: numpad belongs to P2 (the arrow-key side); WASD stays P1 only
+    im.setTwoPlayerKeys(true); im.update(); im.update();
+    press('Numpad9'); im.update();
+    expect(im.get(1).digRight).toBe(true); expect(im.get(0).digRight).toBe(false);
+    release('Numpad9');
+  });
+  it('Android TV couch 2P: every keyboard key set is P1 only; the native controller (remote feed) is P2', () => {
+    const w = new FakeWin();
+    const im = new InputManager(w as unknown as Window);
+    im.setTVRemoteP1();
+    for (const code of ['KeyA', 'ArrowLeft', 'Numpad4']) { key(w, 'keydown', code); im.update(); expect(im.get(0).left).toBe(true); expect(im.get(1).left).toBe(false); key(w, 'keyup', code); im.update(); }
+    for (const code of ['KeyZ', 'Numpad7']) { key(w, 'keydown', code); im.update(); expect(im.get(0).digLeft).toBe(true); expect(im.get(1).digLeft).toBe(false); key(w, 'keyup', code); im.update(); }
+    im.remote.feedMessage({ p: 1, action: 'right', down: true }); im.update();
+    expect(im.get(1).right).toBe(true); expect(im.get(0).right).toBe(false);
+  });
 });
