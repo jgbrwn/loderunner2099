@@ -26,7 +26,12 @@ installable offline PWA.
   with clock, Radio Paradise now-playing card and burn-in protection. Android TV / Google TV app included (`android/`).
 - **Mobile & PWA** – installable, fully offline, touch controls in the side gutters (never over the board), haptics.
 - **Input everywhere** – keyboard, gamepads, TV remotes, touch, phones.
-- **5 themes**, CRT filter, speed control, reduced-motion option. Rendered at 1080p.
+- **Auto Tour level art** – the environment changes every 2–3 levels: Cyber City, Dungeon Depths, Ancient Palace,
+  Orbital Foundry, Matrix, Sunset Chrome and Neon Noir, each with its own tile materials and two procedural
+  backdrops. Purely visual (same seed = same levels). Or pick any set, or Classic C64, as a fixed theme.
+- CRT filter, speed control, reduced-motion option. Rendered at 1080p.
+
+![Environment sets](docs/screenshots/environments.png)
 
 | Menu | TV mode |
 |---|---|
@@ -41,7 +46,7 @@ installable offline PWA.
 | Move | Arrows / WASD | D-pad / stick |
 | Dig left / right | Z / X (or Q / E) | X / B, LB / RB, LT / RT |
 | Pause menu | P / Esc | Start |
-| Theme / CRT / Speed | T / C / + − | — |
+| Level art / CRT / Speed | T / C / + − | — |
 | Mute / music mode | M / B | — |
 | Restart level / new seed | R / N | — |
 
