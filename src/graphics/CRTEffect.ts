@@ -59,9 +59,9 @@ export class CRTEffect {
   toggle(): boolean { this.setEnabled(!this.enabled); return this.enabled; }
   setIntensity(intensity: number): void { this.intensity = Math.max(0, Math.min(1, intensity)); this.apply(); }
 
+  /** Themes may tune the effect, but never override the user's saved CRT on/off preference. */
   applyTheme(theme: Theme): void {
-    if (theme.scanlines === false) this.setEnabled(false);
-    else if (theme.scanlines === true) this.setEnabled(true);
+    if (theme.scanlines === false) this.setIntensity(0.3);
   }
 
   update(): void {

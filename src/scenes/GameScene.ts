@@ -134,7 +134,7 @@ export class GameScene extends Phaser.Scene {
 
     this.cameras.main.setBackgroundColor(this.theme.background);
     this.crtEffect = new CRTEffect(this);
-    if (!this.theme.scanlines) this.crtEffect.setIntensity(0.3);
+    if (this.theme.scanlines === false) this.crtEffect.setIntensity(0.3);
     if (!Settings.crt) this.crtEffect.setEnabled(false);
 
     this.newLevel();
@@ -322,8 +322,10 @@ export class GameScene extends Phaser.Scene {
   // ---------------- options ----------------
   private crtOn(): boolean { return Settings.crt; }
   private toggleCRT(): boolean {
-    const on = this.crtEffect.toggle();
+    // The saved preference is authoritative; a theme may not silently turn CRT back on.
+    const on = !Settings.crt;
     Settings.crt = on;
+    this.crtEffect.setEnabled(on);
     return on;
   }
   private cycleMusic(d: number): MusicMode {
@@ -348,7 +350,7 @@ export class GameScene extends Phaser.Scene {
     for (const b of this.boards) { b.view.setTheme(this.theme); b.hud?.setTheme(this.theme); }
     if (this.mode === 'versus') this.buildVersusHud();
     this.crtEffect.applyTheme(this.theme);
-    if (!Settings.crt) this.crtEffect.setEnabled(false);
+    this.crtEffect.setEnabled(Settings.crt);
     getSoundManager().playMenuSelect();
   }
 

@@ -10,7 +10,7 @@ const set = (k: string, v: string | null): void => {
 export const Settings = {
   get theme(): string { const t = get('theme'); return t && THEMES[t] ? t : 'cyber'; },
   set theme(v: string) { set('theme', v); },
-  get crt(): boolean { return get('crt') !== '0'; },
+  get crt(): boolean { return get('crt') === '1'; },
   set crt(v: boolean) { set('crt', v ? '1' : '0'); },
   /** index into CONFIG.SPEED_MULTIPLIERS (default 1.0x) */
   get speedIndex(): number {
