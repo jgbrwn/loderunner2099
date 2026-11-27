@@ -153,6 +153,10 @@ export interface Theme {
   exitLadder?: number;
   glow?: boolean;
   scanlines?: boolean;
+  /** stable id (= THEMES key; filled in below) — used for texture cache keys and backdrops */
+  id?: string;
+  /** tile construction style: neon circuit bricks (default), dungeon stone, palace sandstone/marble, foundry steel */
+  material?: 'circuit' | 'stone' | 'palace' | 'metal';
 }
 
 export const THEMES: Record<string, Theme> = {
@@ -169,6 +173,54 @@ export const THEMES: Record<string, Theme> = {
     hudText: 0x00ffff,
     hudBg: 0x0a0a2a,
     glow: true,
+  },
+  dungeon: {
+    name: 'DUNGEON DEPTHS',
+    background: 0x0b090c,
+    brick: 0x6a5444,
+    brickHard: 0x4a4e5a,
+    ladder: 0xa8743c,
+    exitLadder: 0xe8c050,
+    pole: 0xb4b4c4,
+    gold: 0xffcc33,
+    player: 0x66e0ff,
+    enemy: 0xff4433,
+    hudText: 0xffaa55,
+    hudBg: 0x140e0c,
+    glow: true,
+    material: 'stone',
+  },
+  palace: {
+    name: 'ANCIENT PALACE',
+    background: 0x170f08,
+    brick: 0x9a7a4e,
+    brickHard: 0xcfc6b4,
+    ladder: 0xb07a3a,
+    exitLadder: 0x40e0d0,
+    pole: 0xd4a040,
+    gold: 0xfff060,
+    player: 0x40ffb0,
+    enemy: 0xe83060,
+    hudText: 0xf0c060,
+    hudBg: 0x1a1208,
+    glow: true,
+    material: 'palace',
+  },
+  foundry: {
+    name: 'ORBITAL FOUNDRY',
+    background: 0x05070c,
+    brick: 0x56606e,
+    brickHard: 0x3a3c44,
+    ladder: 0xffaa22,
+    exitLadder: 0xfff0a0,
+    pole: 0x9aa4b0,
+    gold: 0x55ffdd,
+    player: 0xa8ff44,
+    enemy: 0xff3344,
+    hudText: 0xffaa22,
+    hudBg: 0x0a0c12,
+    glow: true,
+    material: 'metal',
   },
   matrix: {
     name: 'MATRIX',
@@ -228,3 +280,4 @@ export const THEMES: Record<string, Theme> = {
     hudBg: 0x352879,
   },
 };
+for (const [k, t] of Object.entries(THEMES)) t.id = k;
