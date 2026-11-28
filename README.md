@@ -28,7 +28,7 @@ installable offline PWA.
 - **Input everywhere** – keyboard, gamepads, TV remotes, touch, phones.
 - **Auto Tour level art** – a randomly ordered environment every level, with no immediate repeats: Cyber City, Dungeon Depths, Ancient Palace,
   Orbital Foundry, Matrix, Sunset Chrome and Neon Noir, each with its own tile materials and two procedural
-  backdrops. Purely visual (same seed = same levels). Or pick any set, or Classic C64, as a fixed theme.
+  backdrops, plus the Classic C64 palette. Purely visual (same seed = same levels). Or pick any set as a fixed theme.
 - CRT filter, speed control, reduced-motion option. Rendered at 1080p.
 
 ![Environment sets](docs/screenshots/environments.png)

@@ -3,8 +3,8 @@
 import { Rng } from '../graphics/color';
 
 export const AUTO = 'auto';
-/** environments in the tour (Classic C64 is fixed-choice only) */
-export const TOUR_POOL = ['cyber', 'dungeon', 'palace', 'foundry', 'neon', 'matrix', 'sunset'];
+/** Every environment participates in Auto Tour, including the Classic C64 palette. */
+export const TOUR_POOL = ['cyber', 'dungeon', 'palace', 'foundry', 'neon', 'matrix', 'sunset', 'classic'];
 const VERSION = 'art2';
 
 function hash(s: string): number {
